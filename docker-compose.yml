@@ -1,0 +1,27 @@
+services:
+  account-service:
+    build: .
+    command: uvicorn account_service.main:app --host 0.0.0.0 --port 8001
+    environment:
+      ACCOUNT_DB_PATH: /tmp/account-service.sqlite
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    build: .
+    command: uvicorn gateway_service.main:app --host 0.0.0.0 --port 8000
+    environment:
+      GATEWAY_DB_PATH: /tmp/gateway.sqlite
+      ACCOUNT_SERVICE_URL: http://account-service:8001
+      ACCOUNT_SERVICE_TIMEOUT_SECONDS: "1.5"
+      ACCOUNT_SERVICE_MAX_ATTEMPTS: "3"
+    ports:
+      - "8000:8000"
+    depends_on:
+      account-service:
+        condition: service_healthy
