@@ -1,0 +1,12 @@
+C4Container
+  title Event Ledger - Containers
+  Person(client, "Browser / API Client", "External caller")
+  Container(gateway, "Event Gateway API", "FastAPI", "Validates events, enforces idempotency, stores accepted event records, calls Account Service")
+  Container(account, "Account Service", "FastAPI", "Applies account transactions, protects account idempotency, computes balances")
+  ContainerDb(gatewayDb, "Gateway SQLite DB", "SQLite", "Accepted event records")
+  ContainerDb(accountDb, "Account SQLite DB", "SQLite", "Applied account transactions")
+
+  Rel(client, gateway, "POST /events, GET /events, GET /accounts/{id}/balance", "HTTPS/JSON")
+  Rel(gateway, account, "POST /accounts/{id}/transactions and account reads", "HTTP/JSON with X-Trace-Id")
+  Rel(gateway, gatewayDb, "Reads/writes", "SQLite")
+  Rel(account, accountDb, "Reads/writes", "SQLite")

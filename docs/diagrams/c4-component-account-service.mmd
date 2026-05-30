@@ -1,0 +1,16 @@
+C4Component
+  title Account Service - Components
+  Container_Boundary(account, "Account Service") {
+    Component(routes, "FastAPI Routes", "FastAPI", "Internal transaction and account endpoints")
+    Component(validation, "Pydantic Contracts", "Pydantic", "Contract validation and response serialization")
+    Component(repo, "Account Repository", "sqlite3", "Transaction persistence and balance queries")
+    Component(obs, "Observability Middleware", "FastAPI middleware", "Trace IDs, JSON logs, metrics")
+  }
+  ContainerDb(accountDb, "Account SQLite DB", "SQLite", "Applied account transactions")
+  Container(gateway, "Event Gateway API", "FastAPI", "Public API")
+
+  Rel(gateway, routes, "HTTP/JSON with X-Trace-Id")
+  Rel(routes, validation, "Validates payloads")
+  Rel(routes, repo, "Applies transactions and reads account state")
+  Rel(repo, accountDb, "SQL")
+  Rel(obs, routes, "Wraps every request")

@@ -1,0 +1,18 @@
+C4Component
+  title Event Gateway API - Components
+  Container_Boundary(gateway, "Event Gateway API") {
+    Component(routes, "FastAPI Routes", "FastAPI", "Public event and account proxy endpoints")
+    Component(validation, "Pydantic Contracts", "Pydantic", "Request validation and response serialization")
+    Component(repo, "Gateway Repository", "sqlite3", "Event persistence and idempotency reads")
+    Component(client, "Account Client", "HTTPX", "Timeout, retry, backoff, and trace propagation")
+    Component(obs, "Observability Middleware", "FastAPI middleware", "Trace IDs, JSON logs, metrics")
+  }
+  ContainerDb(gatewayDb, "Gateway SQLite DB", "SQLite", "Accepted event records")
+  Container(account, "Account Service", "FastAPI", "Internal transaction service")
+
+  Rel(routes, validation, "Validates payloads")
+  Rel(routes, repo, "Checks and writes events")
+  Rel(routes, client, "Applies transactions and reads balances")
+  Rel(client, account, "HTTP/JSON with X-Trace-Id")
+  Rel(repo, gatewayDb, "SQL")
+  Rel(obs, routes, "Wraps every request")

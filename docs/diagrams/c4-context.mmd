@@ -1,0 +1,8 @@
+C4Context
+  title Event Ledger - System Context
+  Person(client, "Browser / API Client", "Submits and reads financial transaction events")
+  System(eventLedger, "Event Ledger", "Processes transaction events and exposes account state")
+  System_Ext(upstream, "Upstream Systems", "Mainframe batch, payment rails, and other event producers")
+
+  Rel(client, eventLedger, "Submits events and queries status", "HTTPS/JSON")
+  Rel(upstream, eventLedger, "Delivers transaction events", "HTTPS/JSON")
