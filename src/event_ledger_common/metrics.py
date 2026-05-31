@@ -11,6 +11,8 @@ class MetricsRegistry:
     """Thread-safe request counter and latency accumulator."""
 
     def __init__(self) -> None:
+        """Initialize empty in-memory counters."""
+
         self._lock = Lock()
         self._request_counts: dict[str, int] = defaultdict(int)
         self._error_counts: dict[str, int] = defaultdict(int)
@@ -26,6 +28,8 @@ class MetricsRegistry:
         status_code: int,
         duration_ms: float,
     ) -> None:
+        """Record one completed HTTP request."""
+
         key = f"{method} {path}"
         with self._lock:
             self._request_counts[key] += 1
@@ -38,6 +42,8 @@ class MetricsRegistry:
             latency["max"] = max(latency["max"], duration_ms)
 
     def snapshot(self) -> dict[str, Any]:
+        """Return a JSON-serializable metrics snapshot."""
+
         with self._lock:
             latency = {
                 key: {

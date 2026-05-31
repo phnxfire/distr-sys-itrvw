@@ -9,9 +9,13 @@ from gateway_service.account_client import AccountServiceUnavailableError, HttpA
 
 @pytest.mark.asyncio
 async def test_account_client_retries_server_errors_and_propagates_trace_id(event_payload):
+    """Verify retriable 5xx responses preserve trace IDs across attempts."""
+
     calls: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        """Return two temporary failures followed by success."""
+
         calls.append(request)
         if len(calls) < 3:
             return httpx.Response(503, json={"detail": "temporary outage"})
@@ -36,9 +40,13 @@ async def test_account_client_retries_server_errors_and_propagates_trace_id(even
 
 @pytest.mark.asyncio
 async def test_account_client_returns_unavailable_after_bounded_retries(event_payload):
+    """Verify retry attempts are bounded when Account Service keeps failing."""
+
     calls = 0
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        """Return a persistent downstream failure."""
+
         nonlocal calls
         calls += 1
         return httpx.Response(503, json={"detail": "still down"})

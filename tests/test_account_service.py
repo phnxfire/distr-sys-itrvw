@@ -11,6 +11,8 @@ from account_service.main import create_app
 
 @pytest.fixture
 def account_app(tmp_path):
+    """Create an Account Service app backed by an isolated SQLite file."""
+
     return create_app(repository=AccountRepository(tmp_path / "account.sqlite"))
 
 
@@ -20,6 +22,8 @@ async def test_applies_transactions_and_computes_balance_out_of_order(
     event_payload,
     debit_payload,
 ):
+    """Verify balance and history are correct when events arrive out of order."""
+
     older_debit = deepcopy(debit_payload)
     older_debit["eventTimestamp"] = "2026-05-15T13:02:11Z"
 
@@ -49,6 +53,8 @@ async def test_applies_transactions_and_computes_balance_out_of_order(
 
 @pytest.mark.asyncio
 async def test_duplicate_transaction_does_not_change_balance(account_app, event_payload):
+    """Verify duplicate transaction replays do not change account balance."""
+
     async with AsyncClient(
         transport=ASGITransport(app=account_app),
         base_url="http://account-service",
@@ -67,6 +73,8 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
     account_app,
     event_payload,
 ):
+    """Verify conflicting transaction payloads for one eventId are rejected."""
+
     conflicting_payload = deepcopy(event_payload)
     conflicting_payload["amount"] = 151.0
 
@@ -84,6 +92,8 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
 
 @pytest.mark.asyncio
 async def test_rejects_second_currency_for_existing_account(account_app, event_payload):
+    """Verify an account cannot mix currencies in this ledger model."""
+
     eur_payload = deepcopy(event_payload)
     eur_payload["eventId"] = "evt-eur"
     eur_payload["currency"] = "EUR"
@@ -102,6 +112,8 @@ async def test_rejects_second_currency_for_existing_account(account_app, event_p
 
 @pytest.mark.asyncio
 async def test_validation_rejects_bad_transaction(account_app, event_payload):
+    """Verify invalid transaction amounts fail validation."""
+
     bad_payload = deepcopy(event_payload)
     bad_payload["amount"] = 0
 
@@ -116,6 +128,8 @@ async def test_validation_rejects_bad_transaction(account_app, event_payload):
 
 @pytest.mark.asyncio
 async def test_health_and_metrics(account_app, event_payload):
+    """Verify Account Service health and metrics endpoints return diagnostics."""
+
     async with AsyncClient(
         transport=ASGITransport(app=account_app),
         base_url="http://account-service",

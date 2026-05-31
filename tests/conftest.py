@@ -7,6 +7,8 @@ import pytest
 
 @pytest.fixture
 def event_payload() -> dict:
+    """Return a valid CREDIT event payload used by Gateway and Account tests."""
+
     return {
         "eventId": "evt-001",
         "accountId": "acct-123",
@@ -20,6 +22,8 @@ def event_payload() -> dict:
 
 @pytest.fixture
 def debit_payload(event_payload: dict) -> dict:
+    """Return a valid DEBIT event payload for the same account."""
+
     payload = deepcopy(event_payload)
     payload.update(
         {

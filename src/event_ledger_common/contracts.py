@@ -49,6 +49,8 @@ class EventPayload(ApiModel):
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, value: str) -> str:
+        """Normalize currency codes before persistence or downstream calls."""
+
         return value.upper()
 
     @field_validator("event_timestamp")
@@ -66,6 +68,8 @@ class EventPayload(ApiModel):
 
     @field_serializer("event_timestamp")
     def serialize_event_timestamp(self, value: datetime, _info) -> str:
+        """Serialize the business event timestamp in canonical UTC form."""
+
         return format_timestamp(value)
 
 
@@ -78,6 +82,8 @@ class EventRecord(EventPayload):
 
     @field_serializer("created_at", "updated_at")
     def serialize_audit_timestamp(self, value: datetime, _info) -> str:
+        """Serialize Gateway audit timestamps in canonical UTC form."""
+
         return format_timestamp(value)
 
 
@@ -88,6 +94,8 @@ class TransactionRecord(EventPayload):
 
     @field_serializer("applied_at")
     def serialize_applied_at(self, value: datetime, _info) -> str:
+        """Serialize Account Service application time in canonical UTC form."""
+
         return format_timestamp(value)
 
 
@@ -100,6 +108,8 @@ class BalanceResponse(ApiModel):
 
     @field_serializer("balance")
     def serialize_balance(self, value: Decimal, _info) -> float:
+        """Expose balances as JSON numbers while preserving Decimal internally."""
+
         return float(value)
 
 
@@ -119,4 +129,6 @@ class HealthResponse(ApiModel):
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime, _info) -> str:
+        """Serialize health check timestamps in canonical UTC form."""
+
         return format_timestamp(value)

@@ -34,6 +34,8 @@ class AccountRepository:
     """SQLite-backed repository owned exclusively by the Account Service."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        """Open the SQLite database and initialize the transaction schema."""
+
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
@@ -70,6 +72,8 @@ class AccountRepository:
             )
 
     def close(self) -> None:
+        """Close the underlying SQLite connection."""
+
         self._conn.close()
 
     def health_check(self) -> bool:
@@ -211,6 +215,8 @@ def _metadata_json(value: dict[str, Any]) -> str:
 
 
 def _transaction_from_row(row: sqlite3.Row) -> TransactionRecord:
+    """Map a SQLite transaction row into the API response contract."""
+
     return TransactionRecord(
         eventId=row["event_id"],
         accountId=row["account_id"],

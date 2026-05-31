@@ -12,6 +12,8 @@ from gateway_service.main import create_app as create_gateway_app
 
 @pytest.mark.asyncio
 async def test_full_gateway_to_account_service_flow(tmp_path, event_payload, debit_payload):
+    """Exercise the full Gateway to Account Service transaction flow."""
+
     account_app = create_account_app(
         repository=AccountRepository(tmp_path / "account-integration.sqlite")
     )

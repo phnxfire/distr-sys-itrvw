@@ -14,24 +14,32 @@ from gateway_service.main import create_app
 
 class FakeAccountClient:
     def __init__(self) -> None:
+        """Initialize a controllable Account Service test double."""
+
         self.apply_calls: list[tuple[str, str]] = []
         self.balance_calls: list[tuple[str, str]] = []
         self.fail_apply = False
         self.fail_reads = False
 
     async def apply_transaction(self, event, trace_id: str):
+        """Record or reject a Gateway transaction apply call."""
+
         if self.fail_apply:
             raise AccountServiceUnavailableError("down")
         self.apply_calls.append((event.event_id, trace_id))
         return {"ok": True}
 
     async def get_balance(self, account_id: str, trace_id: str) -> BalanceResponse:
+        """Return a fixed balance or simulate a read outage."""
+
         if self.fail_reads:
             raise AccountServiceUnavailableError("down")
         self.balance_calls.append((account_id, trace_id))
         return BalanceResponse(accountId=account_id, balance=Decimal("150.0"), currency="USD")
 
     async def get_account(self, account_id: str, trace_id: str) -> AccountDetailsResponse:
+        """Return fixed account details or simulate a read outage."""
+
         if self.fail_reads:
             raise AccountServiceUnavailableError("down")
         return AccountDetailsResponse(
@@ -44,11 +52,15 @@ class FakeAccountClient:
 
 @pytest.fixture
 def fake_account_client() -> FakeAccountClient:
+    """Provide a fresh Account Service test double."""
+
     return FakeAccountClient()
 
 
 @pytest.fixture
 def gateway_app(tmp_path, fake_account_client):
+    """Create a Gateway app backed by an isolated SQLite file."""
+
     return create_app(
         repository=GatewayRepository(tmp_path / "gateway.sqlite"),
         account_client=fake_account_client,
@@ -61,6 +73,8 @@ async def test_submit_event_and_duplicate_replay_do_not_reapply(
     fake_account_client,
     event_payload,
 ):
+    """Verify duplicate submissions return the original event without reapplying."""
+
     async with AsyncClient(
         transport=ASGITransport(app=gateway_app),
         base_url="http://gateway",
@@ -81,6 +95,8 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
     gateway_app,
     event_payload,
 ):
+    """Verify eventId reuse with different details is rejected."""
+
     conflicting_payload = deepcopy(event_payload)
     conflicting_payload["amount"] = 999.0
 
@@ -101,6 +117,8 @@ async def test_event_listing_is_chronological_not_arrival_order(
     event_payload,
     debit_payload,
 ):
+    """Verify Gateway event listing is ordered by eventTimestamp."""
+
     earlier_payload = deepcopy(debit_payload)
     earlier_payload["eventTimestamp"] = "2026-05-15T13:02:11Z"
 
@@ -119,6 +137,8 @@ async def test_event_listing_is_chronological_not_arrival_order(
 
 @pytest.mark.asyncio
 async def test_validation_rejects_bad_event(gateway_app, event_payload):
+    """Verify invalid event types are rejected by request validation."""
+
     bad_payload = deepcopy(event_payload)
     bad_payload["type"] = "TRANSFER"
 
@@ -138,6 +158,8 @@ async def test_account_service_failure_returns_503_and_event_reads_still_work(
     event_payload,
     debit_payload,
 ):
+    """Verify write degradation while Gateway-owned reads remain available."""
+
     async with AsyncClient(
         transport=ASGITransport(app=gateway_app),
         base_url="http://gateway",
@@ -160,6 +182,8 @@ async def test_balance_proxy_returns_503_when_account_service_is_down(
     gateway_app,
     fake_account_client,
 ):
+    """Verify Account Service read outages become clear Gateway 503 responses."""
+
     fake_account_client.fail_reads = True
 
     async with AsyncClient(
@@ -178,6 +202,8 @@ async def test_trace_id_is_propagated_to_account_service(
     fake_account_client,
     event_payload,
 ):
+    """Verify Gateway propagates caller trace IDs to Account Service calls."""
+
     async with AsyncClient(
         transport=ASGITransport(app=gateway_app),
         base_url="http://gateway",
@@ -195,6 +221,8 @@ async def test_trace_id_is_propagated_to_account_service(
 
 @pytest.mark.asyncio
 async def test_health_and_metrics(gateway_app, event_payload):
+    """Verify Gateway health and metrics endpoints report usable diagnostics."""
+
     async with AsyncClient(
         transport=ASGITransport(app=gateway_app),
         base_url="http://gateway",

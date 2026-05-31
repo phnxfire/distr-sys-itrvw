@@ -16,10 +16,14 @@ class JsonFormatter(logging.Formatter):
     """Render service logs as flat JSON objects suitable for aggregation."""
 
     def __init__(self, service_name: str) -> None:
+        """Create a formatter that stamps every record with a service name."""
+
         super().__init__()
         self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format one logging record as a compact JSON object."""
+
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
@@ -52,6 +56,8 @@ class TraceContextFilter(logging.Filter):
     """Attach the active request trace ID to each emitted log record."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Attach trace context and allow the record to be emitted."""
+
         record.trace_id = get_trace_id()
         return True
 

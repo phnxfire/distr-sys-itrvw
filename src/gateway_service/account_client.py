@@ -21,6 +21,8 @@ class AccountServiceRejectedError(Exception):
     """Raised for non-retriable Account Service validation or contract failures."""
 
     def __init__(self, status_code: int, detail: Any) -> None:
+        """Capture the downstream HTTP status and response detail."""
+
         super().__init__(str(detail))
         self.status_code = status_code
         self.detail = detail
@@ -38,6 +40,8 @@ class HttpAccountClient:
         backoff_seconds: float = 0.1,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        """Configure Account Service connectivity and retry policy."""
+
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_attempts = max(1, max_attempts)
@@ -138,6 +142,8 @@ class HttpAccountClient:
 
 
 def _response_detail(response: httpx.Response) -> Any:
+    """Extract a useful error detail from an HTTPX response."""
+
     try:
         body = response.json()
     except ValueError:

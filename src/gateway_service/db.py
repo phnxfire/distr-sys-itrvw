@@ -23,6 +23,8 @@ class GatewayRepository:
     """SQLite-backed repository owned exclusively by the Event Gateway."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        """Open the SQLite database and initialize the event schema."""
+
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
@@ -60,6 +62,8 @@ class GatewayRepository:
             )
 
     def close(self) -> None:
+        """Close the underlying SQLite connection."""
+
         self._conn.close()
 
     def health_check(self) -> bool:
@@ -159,6 +163,8 @@ def _metadata_json(value: dict[str, Any]) -> str:
 
 
 def _event_from_row(row: sqlite3.Row) -> EventRecord:
+    """Map a SQLite event row into the API response contract."""
+
     return EventRecord(
         eventId=row["event_id"],
         accountId=row["account_id"],
