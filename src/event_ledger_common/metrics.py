@@ -1,3 +1,5 @@
+"""Small in-process metrics registry used by /metrics endpoints."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -6,9 +8,9 @@ from typing import Any
 
 
 class MetricsRegistry:
+    """Thread-safe request counter and latency accumulator."""
+
     def __init__(self) -> None:
-        # This deliberately stays in memory for the take-home. The shape mirrors
-        # what would normally be exported to Prometheus or another metrics sink.
         self._lock = Lock()
         self._request_counts: dict[str, int] = defaultdict(int)
         self._error_counts: dict[str, int] = defaultdict(int)
@@ -26,8 +28,6 @@ class MetricsRegistry:
     ) -> None:
         key = f"{method} {path}"
         with self._lock:
-            # The lock protects counters when the ASGI server handles concurrent
-            # requests in the same process.
             self._request_counts[key] += 1
             if status_code >= 500:
                 self._error_counts[key] += 1

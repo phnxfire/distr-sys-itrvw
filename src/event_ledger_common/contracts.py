@@ -1,3 +1,5 @@
+"""Shared API contracts for Gateway and Account Service HTTP boundaries."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,20 +12,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 from event_ledger_common.time import format_timestamp, require_aware_utc
 
 
-# Shared API contracts keep the Gateway and Account Service speaking the same
-# JSON shape while still letting the Python code use idiomatic snake_case names.
 class TransactionType(StrEnum):
+    """Supported ledger transaction types."""
+
     CREDIT = "CREDIT"
     DEBIT = "DEBIT"
 
 
 class EventStatus(StrEnum):
+    """Gateway-visible lifecycle state for accepted events."""
+
     APPLIED = "APPLIED"
 
 
 class ApiModel(BaseModel):
-    # populate_by_name lets tests and internal code use snake_case while public
-    # APIs continue to expose the camelCase field names from the exercise.
+    """Base model preserving camelCase API fields with snake_case Python code."""
+
     model_config = ConfigDict(
         populate_by_name=True,
         str_strip_whitespace=True,
@@ -32,10 +36,11 @@ class ApiModel(BaseModel):
 
 
 class EventPayload(ApiModel):
+    """Transaction event accepted by the Gateway and applied by Account Service."""
+
     event_id: str = Field(min_length=1, alias="eventId")
     account_id: str = Field(min_length=1, alias="accountId")
     type: TransactionType
-    # Decimal avoids binary floating point drift while validating money amounts.
     amount: Decimal = Field(gt=Decimal("0"))
     currency: str = Field(min_length=3, max_length=3)
     event_timestamp: datetime = Field(alias="eventTimestamp")
@@ -49,13 +54,14 @@ class EventPayload(ApiModel):
     @field_validator("event_timestamp")
     @classmethod
     def validate_event_timestamp(cls, value: datetime) -> datetime:
-        # All event ordering depends on this timestamp, so reject ambiguous
-        # timezone-naive values at the API boundary.
+        """Normalize event time to UTC and reject timezone-naive input."""
+
         return require_aware_utc(value)
 
     @field_serializer("amount")
     def serialize_amount(self, value: Decimal, _info) -> float:
-        # The API examples use JSON numbers; storage still keeps Decimal text.
+        """Expose Decimal values as JSON numbers while keeping internal precision."""
+
         return float(value)
 
     @field_serializer("event_timestamp")
@@ -64,6 +70,8 @@ class EventPayload(ApiModel):
 
 
 class EventRecord(EventPayload):
+    """Gateway-owned event record returned by public event read APIs."""
+
     status: EventStatus
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
@@ -74,6 +82,8 @@ class EventRecord(EventPayload):
 
 
 class TransactionRecord(EventPayload):
+    """Account Service-owned transaction record used for account history."""
+
     applied_at: datetime = Field(alias="appliedAt")
 
     @field_serializer("applied_at")
@@ -82,6 +92,8 @@ class TransactionRecord(EventPayload):
 
 
 class BalanceResponse(ApiModel):
+    """Current account balance response."""
+
     account_id: str = Field(alias="accountId")
     balance: Decimal
     currency: str | None = None
@@ -92,10 +104,14 @@ class BalanceResponse(ApiModel):
 
 
 class AccountDetailsResponse(BalanceResponse):
+    """Account balance plus a bounded chronological transaction history."""
+
     recent_transactions: list[TransactionRecord] = Field(alias="recentTransactions")
 
 
 class HealthResponse(ApiModel):
+    """Common health response returned by both services."""
+
     service: str
     status: str
     database: str

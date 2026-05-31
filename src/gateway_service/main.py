@@ -1,3 +1,5 @@
+"""ASGI application for the public Event Gateway API."""
+
 from __future__ import annotations
 
 import os
@@ -37,9 +39,9 @@ def create_app(
     repository: GatewayRepository | None = None,
     account_client: HttpAccountClient | None = None,
 ) -> FastAPI:
+    """Create a Gateway app with injectable repository and Account client."""
+
     app = FastAPI(title="Event Ledger Gateway API", version="0.1.0")
-    # The Gateway owns public event history; Account Service owns balances.
-    # Dependency injection through parameters keeps tests isolated from disk.
     app.state.repository = repository or GatewayRepository(
         os.getenv("GATEWAY_DB_PATH", "/tmp/event-ledger/gateway.sqlite")
     )
@@ -54,8 +56,8 @@ def create_app(
 
     @app.middleware("http")
     async def trace_metrics_logging_middleware(request: Request, call_next):
-        # The Gateway is the public trace boundary: accept a caller trace ID when
-        # present or create one, then echo and propagate it downstream.
+        """Create/propagate trace IDs and record request observability data."""
+
         trace_id = trace_id_from_header(request.headers.get(TRACE_HEADER))
         token = set_trace_id(trace_id)
         started = time.perf_counter()
@@ -92,12 +94,12 @@ def create_app(
         response: Response,
         request: Request,
     ) -> EventRecord:
+        """Accept a transaction event after downstream account application."""
+
         repository: GatewayRepository = request.app.state.repository
         account_service: HttpAccountClient = request.app.state.account_client
         existing = repository.get_event(event.event_id)
         if existing:
-            # Idempotent replay returns the previously accepted event and skips
-            # Account Service so balance cannot be changed twice.
             if not _same_event(existing, event):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -111,8 +113,6 @@ def create_app(
             return existing
 
         try:
-            # The event is accepted only after the Account Service applies or
-            # idempotently replays the transaction.
             await account_service.apply_transaction(event, trace_id=get_trace_id())
         except AccountServiceUnavailableError as exc:
             raise HTTPException(
@@ -131,7 +131,6 @@ def create_app(
             ) from exc
 
         if not created:
-            # Defensive fallback for a race between local duplicate checks.
             response.status_code = status.HTTP_200_OK
 
         app.state.logger.info(
@@ -145,6 +144,8 @@ def create_app(
         event_id: str,
         request: Request,
     ) -> EventRecord:
+        """Return one Gateway-owned event record by eventId."""
+
         repository: GatewayRepository = request.app.state.repository
         event = repository.get_event(event_id)
         if event is None:
@@ -156,8 +157,8 @@ def create_app(
         request: Request,
         account: str = Query(..., min_length=1),
     ) -> list[EventRecord]:
-        # This read is intentionally local to Gateway, so it still works during
-        # Account Service outages.
+        """Return Gateway-owned events for an account in chronological order."""
+
         repository: GatewayRepository = request.app.state.repository
         return repository.list_events_for_account(account)
 
@@ -166,8 +167,8 @@ def create_app(
         account_id: str,
         request: Request,
     ) -> BalanceResponse:
-        # Balance is account-owned state, so Gateway forwards the request instead
-        # of recalculating from its local event history.
+        """Proxy account balance reads to the Account Service."""
+
         account_service: HttpAccountClient = request.app.state.account_client
         try:
             return await account_service.get_balance(account_id, trace_id=get_trace_id())
@@ -184,6 +185,8 @@ def create_app(
         account_id: str,
         request: Request,
     ) -> AccountDetailsResponse:
+        """Proxy account detail reads to the Account Service."""
+
         account_service: HttpAccountClient = request.app.state.account_client
         try:
             return await account_service.get_account(account_id, trace_id=get_trace_id())
@@ -197,6 +200,8 @@ def create_app(
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
+        """Return Gateway status and local database diagnostics."""
+
         repository: GatewayRepository = request.app.state.repository
         database_status = "ok" if repository.health_check() else "unavailable"
         return HealthResponse(
@@ -208,12 +213,16 @@ def create_app(
 
     @app.get("/metrics")
     async def metrics(request: Request):
+        """Return in-process request counters and latency summaries."""
+
         return request.app.state.metrics.snapshot()
 
     return app
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
+    """Return whether two event payloads are equivalent for idempotency."""
+
     return (
         existing.event_id == incoming.event_id
         and existing.account_id == incoming.account_id

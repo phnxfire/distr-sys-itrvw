@@ -1,3 +1,5 @@
+"""Persistence boundary for Gateway-owned event records."""
+
 from __future__ import annotations
 
 import json
@@ -12,29 +14,31 @@ from event_ledger_common.time import format_timestamp, parse_timestamp, utc_now
 
 
 class DuplicateEventConflictError(Exception):
+    """Raised when an eventId is reused with different event details."""
+
     pass
 
 
 class GatewayRepository:
+    """SQLite-backed repository owned exclusively by the Event Gateway."""
+
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        # Gateway storage is intentionally separate from Account Service storage.
-        # It supports public event reads even when the Account Service is down.
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
-        # One connection is shared by the app instance; the lock prevents local
-        # races in this small embedded-DB implementation.
+        # The repository serializes access to one SQLite connection per app instance.
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._initialize()
 
     def _initialize(self) -> None:
+        """Create the service-owned event schema and account listing index."""
+
         with self._conn:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
-                    -- event_id is the public idempotency key accepted by Gateway.
                     event_id TEXT PRIMARY KEY,
                     account_id TEXT NOT NULL,
                     event_type TEXT NOT NULL,
@@ -59,16 +63,23 @@ class GatewayRepository:
         self._conn.close()
 
     def health_check(self) -> bool:
+        """Verify that the repository can execute a simple database query."""
+
         with self._lock:
             self._conn.execute("SELECT 1").fetchone()
         return True
 
     def insert_applied_event(self, event: EventPayload) -> tuple[EventRecord, bool]:
+        """Persist an event after Account Service has applied the transaction.
+
+        Returns the stored event and a boolean indicating whether this call
+        inserted a new row. Replays with identical payloads are returned without
+        writing another event.
+        """
+
         with self._lock:
             existing = self.get_event(event.event_id)
             if existing:
-                # A replay should return the original event without changing
-                # state; a reused eventId with different details is rejected.
                 if not _same_event(existing, event):
                     raise DuplicateEventConflictError(event.event_id)
                 return existing, False
@@ -95,8 +106,7 @@ class GatewayRepository:
                         event.event_id,
                         event.account_id,
                         event.type,
-                        # Decimal is stored as text so financial values survive
-                        # persistence without binary float rounding.
+                        # Store money as text to avoid SQLite numeric coercion.
                         str(event.amount),
                         event.currency,
                         format_timestamp(event.event_timestamp),
@@ -113,6 +123,8 @@ class GatewayRepository:
             return inserted, True
 
     def get_event(self, event_id: str) -> EventRecord | None:
+        """Fetch one Gateway event by idempotency key."""
+
         row = self._conn.execute(
             """
             SELECT event_id, account_id, event_type, amount, currency, event_timestamp,
@@ -125,14 +137,14 @@ class GatewayRepository:
         return _event_from_row(row) if row else None
 
     def list_events_for_account(self, account_id: str) -> list[EventRecord]:
+        """List account events ordered by original event time, not arrival time."""
+
         rows = self._conn.execute(
             """
             SELECT event_id, account_id, event_type, amount, currency, event_timestamp,
                    metadata_json, status, created_at, updated_at
             FROM events
             WHERE account_id = ?
-            -- The exercise requires event listings by eventTimestamp, not by
-            -- insertion time, because upstream delivery can be out of order.
             ORDER BY event_timestamp ASC, event_id ASC
             """,
             (account_id,),
@@ -141,8 +153,8 @@ class GatewayRepository:
 
 
 def _metadata_json(value: dict[str, Any]) -> str:
-    # Stable key ordering prevents semantically identical metadata from looking
-    # different during idempotency checks.
+    """Serialize metadata deterministically for storage and comparison."""
+
     return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
 
 
@@ -162,7 +174,8 @@ def _event_from_row(row: sqlite3.Row) -> EventRecord:
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
-    # Same eventId is not enough; idempotent replay requires the same payload.
+    """Return whether two event payloads represent the same business event."""
+
     return (
         existing.event_id == incoming.event_id
         and existing.account_id == incoming.account_id
