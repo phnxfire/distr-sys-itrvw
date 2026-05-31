@@ -30,6 +30,8 @@ class HttpAccountClient:
         backoff_seconds: float = 0.1,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        # transport is injectable so integration tests can route HTTP calls
+        # directly into an ASGI app without starting real network servers.
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_attempts = max(1, max_attempts)
@@ -37,6 +39,8 @@ class HttpAccountClient:
         self.transport = transport
 
     async def apply_transaction(self, event: EventPayload, trace_id: str) -> dict[str, Any]:
+        # by_alias=True keeps the internal Gateway -> Account contract identical
+        # to the public JSON field names from the exercise.
         return await self._request(
             "POST",
             f"/accounts/{event.account_id}/transactions",
@@ -71,6 +75,9 @@ class HttpAccountClient:
         last_error: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             try:
+                # The client is scoped per attempt so timeouts and transports are
+                # explicit; for high-throughput production code, this could be
+                # upgraded to a long-lived pooled client.
                 async with httpx.AsyncClient(
                     base_url=self.base_url,
                     timeout=self.timeout_seconds,
@@ -90,17 +97,23 @@ class HttpAccountClient:
             ) as exc:
                 last_error = exc
                 if attempt < self.max_attempts:
+                    # Exponential backoff handles short transient failures while
+                    # bounding total client wait time.
                     await asyncio.sleep(self.backoff_seconds * (2 ** (attempt - 1)))
                     continue
                 raise AccountServiceUnavailableError("Account Service is unreachable") from exc
 
             if response.status_code >= 500:
+                # Retry only server-side/downstream failures. Client errors are
+                # contract or validation problems and should be returned directly.
                 last_error = httpx.HTTPStatusError(
                     "Account Service returned a server error",
                     request=response.request,
                     response=response,
                 )
                 if attempt < self.max_attempts:
+                    # Retrying POST is safe here because Account Service also
+                    # enforces eventId idempotency.
                     await asyncio.sleep(self.backoff_seconds * (2 ** (attempt - 1)))
                     continue
                 raise AccountServiceUnavailableError(

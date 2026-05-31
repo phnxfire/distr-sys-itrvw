@@ -5,6 +5,9 @@ from uuid import uuid4
 
 TRACE_HEADER = "X-Trace-Id"
 
+# ContextVar is the async-safe equivalent of request-local storage. Middleware
+# sets it once per request, and logging/client code can read it without passing
+# the trace ID through every function signature.
 _trace_id: ContextVar[str] = ContextVar("trace_id", default="-")
 
 
@@ -26,4 +29,6 @@ def reset_trace_id(token) -> None:
 
 def trace_id_from_header(value: str | None) -> str:
     normalized = (value or "").strip()
+    # Accept caller-provided IDs to support distributed tracing across systems;
+    # otherwise the Gateway/Service creates a new correlation ID.
     return normalized or new_trace_id()

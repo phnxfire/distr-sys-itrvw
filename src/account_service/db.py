@@ -26,10 +26,14 @@ class AccountCurrencyMismatchError(Exception):
 
 class AccountRepository:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        # This repository is the Account Service's private data boundary. The
+        # Gateway never reaches into this database directly.
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
+        # check_same_thread=False is required because FastAPI may execute work
+        # across threads; the RLock serializes writes around the shared handle.
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._initialize()
@@ -39,6 +43,7 @@ class AccountRepository:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS transactions (
+                    -- event_id is the idempotency key at the money-moving boundary.
                     event_id TEXT PRIMARY KEY,
                     account_id TEXT NOT NULL,
                     event_type TEXT NOT NULL,
@@ -69,12 +74,16 @@ class AccountRepository:
         with self._lock:
             existing = self.get_transaction(event.event_id)
             if existing:
+                # Same eventId + same payload is a safe replay; same eventId +
+                # different payload is an idempotency conflict.
                 if not _same_event(existing, event):
                     raise DuplicateEventConflictError(event.event_id)
                 return existing, False
 
             account_currency = self._account_currency(event.account_id)
             if account_currency is not None and account_currency != event.currency:
+                # The exercise defines one net balance, so the account ledger is
+                # intentionally single-currency in this implementation.
                 raise AccountCurrencyMismatchError(
                     f"account {event.account_id} already uses currency {account_currency}"
                 )
@@ -99,6 +108,8 @@ class AccountRepository:
                         event.event_id,
                         event.account_id,
                         event.type,
+                        # Store Decimal as text to preserve exactness across DB
+                        # round trips without depending on SQLite numeric affinity.
                         str(event.amount),
                         event.currency,
                         format_timestamp(event.event_timestamp),
@@ -137,6 +148,8 @@ class AccountRepository:
         currency: str | None = None
         for row in rows:
             amount = Decimal(row["amount"])
+            # Balance is derived from the complete transaction set, so arrival
+            # order cannot affect the account result.
             balance += amount if row["event_type"] == "CREDIT" else -amount
             currency = currency or row["currency"]
         return BalanceResponse(accountId=account_id, balance=balance, currency=currency)
@@ -149,6 +162,7 @@ class AccountRepository:
                    metadata_json, applied_at
             FROM transactions
             WHERE account_id = ?
+            -- Chronological account history is based on event time, not arrival time.
             ORDER BY event_timestamp ASC, event_id ASC
             LIMIT ?
             """,
@@ -175,6 +189,7 @@ class AccountRepository:
 
 
 def _metadata_json(value: dict[str, Any]) -> str:
+    # Stable metadata JSON makes idempotency comparisons deterministic.
     return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
 
 
@@ -192,6 +207,7 @@ def _transaction_from_row(row: sqlite3.Row) -> TransactionRecord:
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
+    # Idempotency only treats a replay as safe when every business field matches.
     return (
         existing.event_id == incoming.event_id
         and existing.account_id == incoming.account_id

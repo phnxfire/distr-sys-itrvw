@@ -17,10 +17,14 @@ class DuplicateEventConflictError(Exception):
 
 class GatewayRepository:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        # Gateway storage is intentionally separate from Account Service storage.
+        # It supports public event reads even when the Account Service is down.
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
             Path(self.db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
+        # One connection is shared by the app instance; the lock prevents local
+        # races in this small embedded-DB implementation.
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._initialize()
@@ -30,6 +34,7 @@ class GatewayRepository:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
+                    -- event_id is the public idempotency key accepted by Gateway.
                     event_id TEXT PRIMARY KEY,
                     account_id TEXT NOT NULL,
                     event_type TEXT NOT NULL,
@@ -62,6 +67,8 @@ class GatewayRepository:
         with self._lock:
             existing = self.get_event(event.event_id)
             if existing:
+                # A replay should return the original event without changing
+                # state; a reused eventId with different details is rejected.
                 if not _same_event(existing, event):
                     raise DuplicateEventConflictError(event.event_id)
                 return existing, False
@@ -88,6 +95,8 @@ class GatewayRepository:
                         event.event_id,
                         event.account_id,
                         event.type,
+                        # Decimal is stored as text so financial values survive
+                        # persistence without binary float rounding.
                         str(event.amount),
                         event.currency,
                         format_timestamp(event.event_timestamp),
@@ -122,6 +131,8 @@ class GatewayRepository:
                    metadata_json, status, created_at, updated_at
             FROM events
             WHERE account_id = ?
+            -- The exercise requires event listings by eventTimestamp, not by
+            -- insertion time, because upstream delivery can be out of order.
             ORDER BY event_timestamp ASC, event_id ASC
             """,
             (account_id,),
@@ -130,6 +141,8 @@ class GatewayRepository:
 
 
 def _metadata_json(value: dict[str, Any]) -> str:
+    # Stable key ordering prevents semantically identical metadata from looking
+    # different during idempotency checks.
     return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
 
 
@@ -149,6 +162,7 @@ def _event_from_row(row: sqlite3.Row) -> EventRecord:
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
+    # Same eventId is not enough; idempotent replay requires the same payload.
     return (
         existing.event_id == incoming.event_id
         and existing.account_id == incoming.account_id

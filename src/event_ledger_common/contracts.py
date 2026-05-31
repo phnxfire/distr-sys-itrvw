@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 from event_ledger_common.time import format_timestamp, require_aware_utc
 
 
+# Shared API contracts keep the Gateway and Account Service speaking the same
+# JSON shape while still letting the Python code use idiomatic snake_case names.
 class TransactionType(StrEnum):
     CREDIT = "CREDIT"
     DEBIT = "DEBIT"
@@ -20,6 +22,8 @@ class EventStatus(StrEnum):
 
 
 class ApiModel(BaseModel):
+    # populate_by_name lets tests and internal code use snake_case while public
+    # APIs continue to expose the camelCase field names from the exercise.
     model_config = ConfigDict(
         populate_by_name=True,
         str_strip_whitespace=True,
@@ -31,6 +35,7 @@ class EventPayload(ApiModel):
     event_id: str = Field(min_length=1, alias="eventId")
     account_id: str = Field(min_length=1, alias="accountId")
     type: TransactionType
+    # Decimal avoids binary floating point drift while validating money amounts.
     amount: Decimal = Field(gt=Decimal("0"))
     currency: str = Field(min_length=3, max_length=3)
     event_timestamp: datetime = Field(alias="eventTimestamp")
@@ -44,10 +49,13 @@ class EventPayload(ApiModel):
     @field_validator("event_timestamp")
     @classmethod
     def validate_event_timestamp(cls, value: datetime) -> datetime:
+        # All event ordering depends on this timestamp, so reject ambiguous
+        # timezone-naive values at the API boundary.
         return require_aware_utc(value)
 
     @field_serializer("amount")
     def serialize_amount(self, value: Decimal, _info) -> float:
+        # The API examples use JSON numbers; storage still keeps Decimal text.
         return float(value)
 
     @field_serializer("event_timestamp")

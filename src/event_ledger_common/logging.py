@@ -16,6 +16,8 @@ class JsonFormatter(logging.Formatter):
         self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
+        # JSON logs are intentionally flat so they are easy to grep locally and
+        # easy for log aggregation systems to index in a real deployment.
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
@@ -46,6 +48,8 @@ class JsonFormatter(logging.Formatter):
 
 class TraceContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
+        # Inject the current request trace ID into every log record emitted by
+        # service code, even when the call site does not pass extra fields.
         record.trace_id = get_trace_id()
         return True
 
@@ -56,6 +60,7 @@ def get_logger(service_name: str) -> logging.Logger:
     logger.propagate = False
 
     if service_name not in _CONFIGURED_LOGGERS:
+        # Logger setup is idempotent because tests create multiple app instances.
         handler = logging.StreamHandler()
         handler.setFormatter(JsonFormatter(service_name))
         handler.addFilter(TraceContextFilter())

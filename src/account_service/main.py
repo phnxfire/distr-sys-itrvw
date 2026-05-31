@@ -32,6 +32,8 @@ SERVICE_NAME = "account-service"
 
 def create_app(repository: AccountRepository | None = None) -> FastAPI:
     app = FastAPI(title="Event Ledger Account Service", version="0.1.0")
+    # app.state holds service-level components. Tests can inject a repository,
+    # while production/local runs use the configured SQLite path.
     app.state.repository = repository or AccountRepository(
         os.getenv("ACCOUNT_DB_PATH", "/tmp/event-ledger/account-service.sqlite")
     )
@@ -40,6 +42,8 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def trace_metrics_logging_middleware(request: Request, call_next):
+        # Cross-cutting operational behavior lives in middleware so every route
+        # gets the same trace propagation, metrics, and structured logging.
         trace_id = trace_id_from_header(request.headers.get(TRACE_HEADER))
         token = set_trace_id(trace_id)
         started = time.perf_counter()
@@ -82,6 +86,8 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         request: Request,
     ) -> TransactionRecord:
         repository: AccountRepository = request.app.state.repository
+        # Keep the path parameter and body aligned; otherwise a caller could
+        # accidentally write a transaction to the wrong account URL.
         if event.account_id != account_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -98,6 +104,7 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
         if not created:
+            # Duplicate replays are successful but not newly created.
             response.status_code = status.HTTP_200_OK
         app.state.logger.info(
             "transaction applied" if created else "duplicate transaction replayed",
@@ -110,6 +117,8 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         account_id: str,
         request: Request,
     ) -> BalanceResponse:
+        # The Account Service is the only component that calculates balances;
+        # Gateway only proxies this call.
         repository: AccountRepository = request.app.state.repository
         return repository.get_balance(account_id)
 
