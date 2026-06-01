@@ -1,8 +1,13 @@
-C4Context
-  title Event Ledger - System Context
-  Person(client, "Browser / API Client", "Submits and reads financial transaction events")
-  System(eventLedger, "Event Ledger", "Processes transaction events and exposes account state")
-  System_Ext(upstream, "Upstream Systems", "Mainframe batch, payment rails, and other event producers")
+flowchart LR
+  %% C4 Level 1: System Context. Kept left-to-right to avoid crossing lines.
+  upstream["Upstream Systems<br/>mainframe batch, payment rails"]
+  client["Browser / API Client<br/>submits and reads events"]
+  ledger["Event Ledger<br/>processes transaction events and exposes account state"]
 
-  Rel(client, eventLedger, "Submits events and queries status", "HTTPS/JSON")
-  Rel(upstream, eventLedger, "Delivers transaction events", "HTTPS/JSON")
+  upstream -->|"POST /events<br/>transaction events"| ledger
+  client -->|"submit events<br/>query events and balances"| ledger
+
+  classDef actor fill:#eef6ff,stroke:#3b82f6,color:#111827
+  classDef system fill:#ecfdf5,stroke:#059669,color:#111827
+  class upstream,client actor
+  class ledger system

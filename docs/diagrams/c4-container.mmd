@@ -1,12 +1,27 @@
-C4Container
-  title Event Ledger - Containers
-  Person(client, "Browser / API Client", "External caller")
-  Container(gateway, "Event Gateway API", "FastAPI", "Validates events, enforces idempotency, stores accepted event records, calls Account Service")
-  Container(account, "Account Service", "FastAPI", "Applies account transactions, protects account idempotency, computes balances")
-  ContainerDb(gatewayDb, "Gateway SQLite DB", "SQLite", "Accepted event records")
-  ContainerDb(accountDb, "Account SQLite DB", "SQLite", "Applied account transactions")
+flowchart LR
+  %% C4 Level 2: Containers. External callers flow into Gateway, then Account Service.
+  client["Browser / API Client"]
 
-  Rel(client, gateway, "POST /events, GET /events, GET /accounts/{id}/balance", "HTTPS/JSON")
-  Rel(gateway, account, "POST /accounts/{id}/transactions and account reads", "HTTP/JSON with X-Trace-Id")
-  Rel(gateway, gatewayDb, "Reads/writes", "SQLite")
-  Rel(account, accountDb, "Reads/writes", "SQLite")
+  subgraph gatewayBoundary["Event Gateway API - FastAPI"]
+    direction TB
+    gateway["Gateway routes<br/>validation, idempotency, trace boundary"]
+    gatewayDb[("Gateway SQLite DB<br/>accepted event records")]
+    gateway -->|"read/write events"| gatewayDb
+  end
+
+  subgraph accountBoundary["Account Service - FastAPI"]
+    direction TB
+    account["Account routes<br/>transactions, balances, account details"]
+    accountDb[("Account SQLite DB<br/>applied transactions")]
+    account -->|"read/write transactions"| accountDb
+  end
+
+  client -->|"POST /events<br/>GET /events<br/>GET /accounts/{id}/balance"| gateway
+  gateway -->|"HTTP/JSON<br/>X-Trace-Id"| account
+
+  classDef actor fill:#eef6ff,stroke:#3b82f6,color:#111827
+  classDef service fill:#ecfdf5,stroke:#059669,color:#111827
+  classDef database fill:#fff7ed,stroke:#ea580c,color:#111827
+  class client actor
+  class gateway,account service
+  class gatewayDb,accountDb database

@@ -27,32 +27,45 @@ Rendered images:
 ### C4 Level 1: System Context
 
 ```mermaid
-C4Context
-  title Event Ledger - System Context
-  Person(client, "Browser / API Client", "Submits and reads financial transaction events")
-  System(eventLedger, "Event Ledger", "Processes transaction events and exposes account state")
-  System_Ext(upstream, "Upstream Systems", "Mainframe batch, payment rails, and other event producers")
+flowchart LR
+  upstream["Upstream Systems<br/>mainframe batch, payment rails"]
+  client["Browser / API Client<br/>submits and reads events"]
+  ledger["Event Ledger<br/>processes transaction events and exposes account state"]
 
-  Rel(client, eventLedger, "Submits events and queries status", "HTTPS/JSON")
-  Rel(upstream, eventLedger, "Delivers transaction events", "HTTPS/JSON")
+  upstream -->|"POST /events<br/>transaction events"| ledger
+  client -->|"submit events<br/>query events and balances"| ledger
 ```
 
 ### C4 Level 2: Containers
 
 ```mermaid
-C4Container
-  title Event Ledger - Containers
-  Person(client, "Browser / API Client", "External caller")
-  Container(gateway, "Event Gateway API", "FastAPI", "Validates events, enforces idempotency, stores accepted event records, calls Account Service")
-  Container(account, "Account Service", "FastAPI", "Applies account transactions, protects account idempotency, computes balances")
-  ContainerDb(gatewayDb, "Gateway SQLite DB", "SQLite", "Accepted event records")
-  ContainerDb(accountDb, "Account SQLite DB", "SQLite", "Applied account transactions")
+flowchart LR
+  client["Browser / API Client"]
 
-  Rel(client, gateway, "POST /events, GET /events, GET /accounts/{id}/balance", "HTTPS/JSON")
-  Rel(gateway, account, "POST /accounts/{id}/transactions and account reads", "HTTP/JSON with X-Trace-Id")
-  Rel(gateway, gatewayDb, "Reads/writes", "SQLite")
-  Rel(account, accountDb, "Reads/writes", "SQLite")
+  subgraph gatewayBoundary["Event Gateway API - FastAPI"]
+    direction TB
+    gateway["Gateway routes<br/>validation, idempotency, trace boundary"]
+    gatewayDb[("Gateway SQLite DB<br/>accepted event records")]
+    gateway -->|"read/write events"| gatewayDb
+  end
+
+  subgraph accountBoundary["Account Service - FastAPI"]
+    direction TB
+    account["Account routes<br/>transactions, balances, account details"]
+    accountDb[("Account SQLite DB<br/>applied transactions")]
+    account -->|"read/write transactions"| accountDb
+  end
+
+  client -->|"POST /events<br/>GET /events<br/>GET /accounts/{id}/balance"| gateway
+  gateway -->|"HTTP/JSON<br/>X-Trace-Id"| account
 ```
+
+### C4 Level 3: Components
+
+Rendered component diagrams:
+
+- [Gateway Component Diagram](diagrams/c4-component-gateway.svg)
+- [Account Service Component Diagram](diagrams/c4-component-account-service.svg)
 
 ## Request Flow
 

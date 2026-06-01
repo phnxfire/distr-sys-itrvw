@@ -1,16 +1,26 @@
-C4Component
-  title Account Service - Components
-  Container_Boundary(account, "Account Service") {
-    Component(routes, "FastAPI Routes", "FastAPI", "Internal transaction and account endpoints")
-    Component(validation, "Pydantic Contracts", "Pydantic", "Contract validation and response serialization")
-    Component(repo, "Account Repository", "sqlite3", "Transaction persistence and balance queries")
-    Component(obs, "Observability Middleware", "FastAPI middleware", "Trace IDs, JSON logs, metrics")
-  }
-  ContainerDb(accountDb, "Account SQLite DB", "SQLite", "Applied account transactions")
-  Container(gateway, "Event Gateway API", "FastAPI", "Public API")
+flowchart LR
+  %% C4 Level 3: Account Service components. Gateway enters once, data exits to DB.
+  gateway["Event Gateway API"]
 
-  Rel(gateway, routes, "HTTP/JSON with X-Trace-Id")
-  Rel(routes, validation, "Validates payloads")
-  Rel(routes, repo, "Applies transactions and reads account state")
-  Rel(repo, accountDb, "SQL")
-  Rel(obs, routes, "Wraps every request")
+  subgraph accountBoundary["Account Service"]
+    direction LR
+    obs["Observability Middleware<br/>trace ID, JSON logs, metrics"]
+    routes["FastAPI Routes<br/>transaction and account endpoints"]
+    contracts["Pydantic Contracts<br/>contract validation and serialization"]
+    repo["Account Repository<br/>idempotent transactions and balances"]
+  end
+
+  accountDb[("Account SQLite DB<br/>applied transactions")]
+
+  gateway -->|"HTTP/JSON<br/>X-Trace-Id"| obs
+  obs -->|"request context"| routes
+  routes -->|"validate payloads"| contracts
+  routes -->|"apply/read account state"| repo
+  repo -->|"SQL"| accountDb
+
+  classDef external fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef component fill:#ecfdf5,stroke:#059669,color:#111827
+  classDef database fill:#fff7ed,stroke:#ea580c,color:#111827
+  class gateway external
+  class obs,routes,contracts,repo component
+  class accountDb database

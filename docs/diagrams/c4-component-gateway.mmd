@@ -1,18 +1,32 @@
-C4Component
-  title Event Gateway API - Components
-  Container_Boundary(gateway, "Event Gateway API") {
-    Component(routes, "FastAPI Routes", "FastAPI", "Public event and account proxy endpoints")
-    Component(validation, "Pydantic Contracts", "Pydantic", "Request validation and response serialization")
-    Component(repo, "Gateway Repository", "sqlite3", "Event persistence and idempotency reads")
-    Component(client, "Account Client", "HTTPX", "Timeout, retry, backoff, and trace propagation")
-    Component(obs, "Observability Middleware", "FastAPI middleware", "Trace IDs, JSON logs, metrics")
-  }
-  ContainerDb(gatewayDb, "Gateway SQLite DB", "SQLite", "Accepted event records")
-  Container(account, "Account Service", "FastAPI", "Internal transaction service")
+flowchart LR
+  %% C4 Level 3: Gateway components. The primary request path is left-to-right.
+  client["Browser / API Client"]
 
-  Rel(routes, validation, "Validates payloads")
-  Rel(routes, repo, "Checks and writes events")
-  Rel(routes, client, "Applies transactions and reads balances")
-  Rel(client, account, "HTTP/JSON with X-Trace-Id")
-  Rel(repo, gatewayDb, "SQL")
-  Rel(obs, routes, "Wraps every request")
+  subgraph gatewayBoundary["Event Gateway API"]
+    direction LR
+    obs["Observability Middleware<br/>trace ID, JSON logs, metrics"]
+    routes["FastAPI Routes<br/>public event and account proxy endpoints"]
+    contracts["Pydantic Contracts<br/>validation and serialization"]
+    repo["Gateway Repository<br/>event persistence and idempotency"]
+    accountClient["Account Client<br/>timeout, retry, backoff"]
+  end
+
+  gatewayDb[("Gateway SQLite DB<br/>accepted event records")]
+  account["Account Service<br/>internal transaction API"]
+
+  client -->|"HTTP request"| obs
+  obs -->|"request context"| routes
+  routes -->|"validate payloads"| contracts
+  routes -->|"check/store events"| repo
+  repo -->|"SQL"| gatewayDb
+  routes -->|"apply transactions<br/>read account state"| accountClient
+  accountClient -->|"HTTP/JSON<br/>X-Trace-Id"| account
+
+  classDef actor fill:#eef6ff,stroke:#3b82f6,color:#111827
+  classDef component fill:#ecfdf5,stroke:#059669,color:#111827
+  classDef database fill:#fff7ed,stroke:#ea580c,color:#111827
+  classDef external fill:#f8fafc,stroke:#64748b,color:#111827
+  class client actor
+  class obs,routes,contracts,repo,accountClient component
+  class gatewayDb database
+  class account external
