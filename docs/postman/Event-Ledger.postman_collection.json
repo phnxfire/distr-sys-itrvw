@@ -1,0 +1,405 @@
+{
+  "info": {
+    "_postman_id": "b7a5d4d1-2b8f-4a5d-8d53-event-ledger",
+    "name": "Event Ledger Take-Home",
+    "description": "Postman collection for validating the Event Ledger Gateway and Account Service behavior used in the take-home exercise.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "accountServiceUrl",
+      "value": "http://127.0.0.1:8001"
+    },
+    {
+      "key": "accountId",
+      "value": "acct-postman"
+    },
+    {
+      "key": "traceId",
+      "value": "4bf92f3577b34da6a3ce929d0e0e4736"
+    },
+    {
+      "key": "creditEventId",
+      "value": ""
+    },
+    {
+      "key": "debitEventId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Gateway Health",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const runId = Date.now();",
+              "pm.collectionVariables.set('accountId', 'acct-postman-' + runId);",
+              "pm.collectionVariables.set('creditEventId', 'evt-credit-' + runId);",
+              "pm.collectionVariables.set('debitEventId', 'evt-debit-' + runId);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Gateway is healthy', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().service).to.eql('event-gateway');",
+              "  pm.expect(pm.response.json().database).to.eql('ok');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "02 Account Service Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Account Service is healthy', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().service).to.eql('account-service');",
+              "  pm.expect(pm.response.json().database).to.eql('ok');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{accountServiceUrl}}/health",
+          "host": [
+            "{{accountServiceUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "03 Submit Credit Event",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Credit event is created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.expect(pm.response.json().eventId).to.eql(pm.collectionVariables.get('creditEventId'));",
+              "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+              "  pm.expect(pm.response.headers.get('X-Trace-Id')).to.eql(pm.collectionVariables.get('traceId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "traceparent",
+            "value": "00-{{traceId}}-00f067aa0ba902b7-01"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{creditEventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 150.0,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\",\n  \"metadata\": {\n    \"source\": \"postman\",\n    \"batchId\": \"B-POSTMAN\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "04 Duplicate Credit Replay",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Duplicate event replays original record', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().eventId).to.eql(pm.collectionVariables.get('creditEventId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{creditEventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 150.0,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\",\n  \"metadata\": {\n    \"source\": \"postman\",\n    \"batchId\": \"B-POSTMAN\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "05 Conflicting Duplicate Is Rejected",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Conflicting duplicate is rejected', function () {",
+              "  pm.response.to.have.status(409);",
+              "  pm.expect(pm.response.json().detail).to.include('eventId already exists');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{creditEventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"CREDIT\",\n  \"amount\": 999.0,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T14:02:11Z\",\n  \"metadata\": {\n    \"source\": \"postman\",\n    \"batchId\": \"B-POSTMAN\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "06 Submit Earlier Debit Event",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Earlier debit event is created', function () {",
+              "  pm.response.to.have.status(201);",
+              "  pm.expect(pm.response.json().eventId).to.eql(pm.collectionVariables.get('debitEventId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{debitEventId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"type\": \"DEBIT\",\n  \"amount\": 25.5,\n  \"currency\": \"USD\",\n  \"eventTimestamp\": \"2026-05-15T13:02:11Z\",\n  \"metadata\": {\n    \"source\": \"postman\",\n    \"batchId\": \"B-POSTMAN\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "07 List Events In Chronological Order",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Events are ordered by eventTimestamp', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const events = pm.response.json();",
+              "  pm.expect(events).to.have.length(2);",
+              "  pm.expect(events[0].eventId).to.eql(pm.collectionVariables.get('debitEventId'));",
+              "  pm.expect(events[1].eventId).to.eql(pm.collectionVariables.get('creditEventId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/events?account={{accountId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events"
+          ],
+          "query": [
+            {
+              "key": "account",
+              "value": "{{accountId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "08 Get Balance",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Balance reflects credit minus debit', function () {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json().balance).to.eql(124.5);",
+              "  pm.expect(pm.response.json().currency).to.eql('USD');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/balance",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "accounts",
+            "{{accountId}}",
+            "balance"
+          ]
+        }
+      }
+    },
+    {
+      "name": "09 Get Account Details",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Account details include chronological transactions', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.balance).to.eql(124.5);",
+              "  pm.expect(body.recentTransactions[0].eventId).to.eql(pm.collectionVariables.get('debitEventId'));",
+              "  pm.expect(body.recentTransactions[1].eventId).to.eql(pm.collectionVariables.get('creditEventId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "accounts",
+            "{{accountId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "10 Metrics Include Domain Counters",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Gateway domain counters show business outcomes', function () {",
+              "  pm.response.to.have.status(200);",
+              "  const counters = pm.response.json().domainEvents;",
+              "  pm.expect(counters['gateway.events.accepted']).to.be.at.least(2);",
+              "  pm.expect(counters['gateway.events.duplicate_replay']).to.be.at.least(1);",
+              "  pm.expect(counters['gateway.events.idempotency_conflict']).to.be.at.least(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/metrics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "metrics"
+          ]
+        }
+      }
+    }
+  ]
+}

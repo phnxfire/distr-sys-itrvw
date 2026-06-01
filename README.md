@@ -177,6 +177,26 @@ make test
 
 The tests cover validation, idempotency, out-of-order event listing, balance correctness, Account Service failure handling, retry and circuit breaker behavior, domain metrics, trace propagation, and an end-to-end Gateway to Account Service flow.
 
+## Postman
+
+Import [docs/postman/Event-Ledger.postman_collection.json](docs/postman/Event-Ledger.postman_collection.json) into Postman to run an evaluator-friendly request sequence against a local server.
+
+The collection covers:
+
+- Gateway and Account Service health checks
+- successful credit submission
+- exact duplicate replay
+- conflicting duplicate rejection
+- out-of-order debit submission
+- chronological event listing
+- balance and account detail reads
+- Gateway domain metrics
+
+Run the services first with either `docker compose up --build` or the local `make run-account` and `make run-gateway` commands. The collection defaults to:
+
+- Gateway: `http://127.0.0.1:8000`
+- Account Service: `http://127.0.0.1:8001`
+
 ## Diagrams
 
 The Mermaid C4 source files live under `docs/diagrams/*.mmd`. Rendered SVG images can be regenerated with:
