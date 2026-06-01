@@ -141,3 +141,21 @@ async def test_health_and_metrics(account_app, event_payload):
     assert health.status_code == 200
     assert health.json()["database"] == "ok"
     assert "POST /accounts/{account_id}/transactions" in metrics.json()["requests"]
+
+
+@pytest.mark.asyncio
+async def test_traceparent_is_accepted_and_echoed(account_app):
+    """Verify Account Service accepts W3C traceparent and echoes trace context."""
+
+    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    traceparent = f"00-{trace_id}-00f067aa0ba902b7-01"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=account_app),
+        base_url="http://account-service",
+    ) as client:
+        response = await client.get("/health", headers={"traceparent": traceparent})
+
+    assert response.status_code == 200
+    assert response.headers["X-Trace-Id"] == trace_id
+    assert response.headers["traceparent"].startswith(f"00-{trace_id}-")

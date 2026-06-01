@@ -32,13 +32,13 @@
 
 **Tradeoff:** A circuit breaker would better protect a heavily loaded downstream dependency over time. The chosen pattern is enough for the assignment scope and is safe because Account Service calls are idempotent.
 
-## ADR 005: Lightweight Trace Propagation
+## ADR 005: Lightweight Trace Propagation With W3C Compatibility
 
-**Decision:** Use `X-Trace-Id` propagation instead of a full OpenTelemetry collector.
+**Decision:** Use `X-Trace-Id` plus W3C `traceparent` propagation instead of a full OpenTelemetry collector.
 
-**Why:** The requirement says OpenTelemetry is preferred, not required. A trace header demonstrates the essential distributed tracing behavior: one client request can be correlated across service logs.
+**Why:** The requirement says OpenTelemetry is preferred, not required. `X-Trace-Id` keeps local debugging simple, while `traceparent` models the professional W3C propagation format used by OpenTelemetry. One client request can be correlated across service logs and is ready for later span export.
 
-**Tradeoff:** This does not provide span timing visualization or trace sampling. The code is structured so OpenTelemetry middleware/exporters could be added later.
+**Tradeoff:** This does not provide span timing visualization or trace sampling. The code is structured so OpenTelemetry middleware/exporters could be added later without changing public API behavior.
 
 ## ADR 006: Store Only Applied Events in the Gateway
 

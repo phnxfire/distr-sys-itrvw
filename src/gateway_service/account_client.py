@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from event_ledger_common.contracts import AccountDetailsResponse, BalanceResponse, EventPayload
-from event_ledger_common.trace import TRACE_HEADER
+from event_ledger_common.trace import TRACE_HEADER, TRACEPARENT_HEADER, traceparent_from_trace_id
 
 
 class AccountServiceUnavailableError(Exception):
@@ -93,6 +93,10 @@ class HttpAccountClient:
         """
 
         last_error: Exception | None = None
+        headers = {TRACE_HEADER: trace_id}
+        if traceparent := traceparent_from_trace_id(trace_id):
+            headers[TRACEPARENT_HEADER] = traceparent
+
         for attempt in range(1, self.max_attempts + 1):
             try:
                 async with httpx.AsyncClient(
@@ -104,7 +108,7 @@ class HttpAccountClient:
                         method,
                         path,
                         json=json,
-                        headers={TRACE_HEADER: trace_id},
+                        headers=headers,
                     )
             except (
                 httpx.ConnectError,

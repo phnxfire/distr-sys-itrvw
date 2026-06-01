@@ -24,9 +24,11 @@ from event_ledger_common.metrics import MetricsRegistry
 from event_ledger_common.time import utc_now
 from event_ledger_common.trace import (
     TRACE_HEADER,
+    TRACEPARENT_HEADER,
     reset_trace_id,
     set_trace_id,
-    trace_id_from_header,
+    trace_id_from_headers,
+    traceparent_from_trace_id,
 )
 
 SERVICE_NAME = "account-service"
@@ -46,7 +48,10 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
     async def trace_metrics_logging_middleware(request: Request, call_next):
         """Attach trace context, request metrics, and JSON request logging."""
 
-        trace_id = trace_id_from_header(request.headers.get(TRACE_HEADER))
+        trace_id = trace_id_from_headers(
+            request.headers.get(TRACE_HEADER),
+            request.headers.get(TRACEPARENT_HEADER),
+        )
         token = set_trace_id(trace_id)
         started = time.perf_counter()
         status_code = 500
@@ -54,6 +59,8 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
             response = await call_next(request)
             status_code = response.status_code
             response.headers[TRACE_HEADER] = trace_id
+            if traceparent := traceparent_from_trace_id(trace_id):
+                response.headers[TRACEPARENT_HEADER] = traceparent
             return response
         finally:
             duration_ms = (time.perf_counter() - started) * 1000

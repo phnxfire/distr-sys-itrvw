@@ -39,6 +39,37 @@ async def test_account_client_retries_server_errors_and_propagates_trace_id(even
 
 
 @pytest.mark.asyncio
+async def test_account_client_propagates_traceparent_for_w3c_trace_id(event_payload):
+    """Verify W3C-compatible trace IDs are propagated as traceparent headers."""
+
+    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    captured_request: httpx.Request | None = None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        """Capture a successful outbound Account Service request."""
+
+        nonlocal captured_request
+        captured_request = request
+        return httpx.Response(201, json={"ok": True})
+
+    client = HttpAccountClient(
+        base_url="http://account-service",
+        max_attempts=1,
+        backoff_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    await client.apply_transaction(
+        EventPayload.model_validate(event_payload),
+        trace_id=trace_id,
+    )
+
+    assert captured_request is not None
+    assert captured_request.headers["X-Trace-Id"] == trace_id
+    assert captured_request.headers["traceparent"].startswith(f"00-{trace_id}-")
+
+
+@pytest.mark.asyncio
 async def test_account_client_returns_unavailable_after_bounded_retries(event_payload):
     """Verify retry attempts are bounded when Account Service keeps failing."""
 

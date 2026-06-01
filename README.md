@@ -24,6 +24,7 @@ The system has two independently runnable FastAPI services.
 The Gateway and Account Service do not share database connections, tables, or in-process state. They communicate synchronously over REST.
 
 See [docs/architecture.md](docs/architecture.md) for C4 diagrams and request-flow details.
+See [docs/delivery-readiness-review.md](docs/delivery-readiness-review.md) for the delivery-readiness review, operational tradeoffs, and production improvement plan.
 
 Rendered diagram images are also available as SVG files:
 
@@ -101,7 +102,7 @@ The Gateway listens on `http://localhost:8000`. The Account Service listens on `
 docker compose up --build
 ```
 
-Then call the Gateway:
+Then call the Gateway on `http://localhost:8000`. The Account Service is intentionally not published to the host in Docker Compose; Gateway reaches it through the internal Compose network.
 
 ```bash
 curl -X POST http://localhost:8000/events \
@@ -157,13 +158,14 @@ Both services expose:
 - `GET /metrics` for request counts, error counts, and latency summaries
 - JSON structured logs with `timestamp`, `level`, `service`, `trace_id`, and HTTP details
 
-Trace IDs are generated at the Gateway when absent, accepted from `X-Trace-Id` when present, propagated to the Account Service via the same header, logged by both services, and echoed in responses.
+Trace IDs are generated at the Gateway when absent, accepted from `X-Trace-Id` or W3C `traceparent` when present, propagated to the Account Service, logged by both services, and echoed in responses.
 
 ## Design Notes
 
 Additional architecture and technical decision documentation:
 
 - [Architecture](docs/architecture.md)
+- [Delivery Readiness Review](docs/delivery-readiness-review.md)
 - [Technical Decisions](docs/technical-decisions.md)
 - [C4 Context Diagram](docs/diagrams/c4-context.mmd)
 - [C4 Container Diagram](docs/diagrams/c4-container.mmd)

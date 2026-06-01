@@ -220,6 +220,33 @@ async def test_trace_id_is_propagated_to_account_service(
 
 
 @pytest.mark.asyncio
+async def test_traceparent_is_accepted_and_echoed(
+    gateway_app,
+    fake_account_client,
+    event_payload,
+):
+    """Verify Gateway accepts W3C traceparent and uses its trace ID."""
+
+    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    traceparent = f"00-{trace_id}-00f067aa0ba902b7-01"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=gateway_app),
+        base_url="http://gateway",
+    ) as client:
+        response = await client.post(
+            "/events",
+            json=event_payload,
+            headers={"traceparent": traceparent},
+        )
+
+    assert response.status_code == 201
+    assert response.headers["X-Trace-Id"] == trace_id
+    assert response.headers["traceparent"].startswith(f"00-{trace_id}-")
+    assert fake_account_client.apply_calls == [("evt-001", trace_id)]
+
+
+@pytest.mark.asyncio
 async def test_health_and_metrics(gateway_app, event_payload):
     """Verify Gateway health and metrics endpoints report usable diagnostics."""
 

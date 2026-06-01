@@ -12,6 +12,7 @@ Primary design goals:
 - keep Gateway and Account Service state physically separate
 - expose enough logs, metrics, and health signals to operate the system
 - degrade clearly when the Account Service is unavailable
+- keep the Account Service internal to Gateway in the Docker Compose runtime
 
 ## C4 Diagrams
 
@@ -57,7 +58,7 @@ flowchart LR
   end
 
   client -->|"POST /events<br/>GET /events<br/>GET /accounts/{id}/balance"| gateway
-  gateway -->|"HTTP/JSON<br/>X-Trace-Id"| account
+  gateway -->|"HTTP/JSON<br/>trace headers"| account
 ```
 
 ### C4 Level 3: Components
@@ -86,7 +87,7 @@ sequenceDiagram
   else duplicate eventId with different details
     Gateway-->>Client: 409 Conflict
   else new event
-    Gateway->>Account: POST /accounts/{accountId}/transactions with X-Trace-Id
+    Gateway->>Account: POST /accounts/{accountId}/transactions with trace headers
     Account->>AccountDB: Insert transaction if eventId not present
     Account-->>Gateway: 201 Created or 200 duplicate replay
     Gateway->>GatewayDB: Store applied event record
@@ -162,8 +163,8 @@ When the Account Service is unreachable:
 Both services include:
 
 - JSON structured logs
-- `X-Trace-Id` propagation
+- `X-Trace-Id` and W3C `traceparent` propagation
 - request metrics
 - health checks with database connectivity diagnostics
 
-The trace ID is a lightweight substitute for full OpenTelemetry in this scoped exercise. Full OTel export could be added later without changing the public API.
+The trace ID behavior is a lightweight substitute for full OpenTelemetry in this scoped exercise. W3C `traceparent` support keeps the propagation model compatible with an OpenTelemetry upgrade.

@@ -20,7 +20,7 @@ flowchart LR
   routes -->|"check/store events"| repo
   repo -->|"SQL"| gatewayDb
   routes -->|"apply transactions<br/>read account state"| accountClient
-  accountClient -->|"HTTP/JSON<br/>X-Trace-Id"| account
+  accountClient -->|"HTTP/JSON<br/>trace headers"| account
 
   classDef actor fill:#eef6ff,stroke:#3b82f6,color:#111827
   classDef component fill:#ecfdf5,stroke:#059669,color:#111827

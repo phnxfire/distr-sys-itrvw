@@ -12,7 +12,7 @@ flowchart LR
 
   accountDb[("Account SQLite DB<br/>applied transactions")]
 
-  gateway -->|"HTTP/JSON<br/>X-Trace-Id"| obs
+  gateway -->|"HTTP/JSON<br/>trace headers"| obs
   obs -->|"request context"| routes
   routes -->|"validate payloads"| contracts
   routes -->|"apply/read account state"| repo

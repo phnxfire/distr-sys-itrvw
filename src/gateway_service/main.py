@@ -19,10 +19,12 @@ from event_ledger_common.metrics import MetricsRegistry
 from event_ledger_common.time import utc_now
 from event_ledger_common.trace import (
     TRACE_HEADER,
+    TRACEPARENT_HEADER,
     get_trace_id,
     reset_trace_id,
     set_trace_id,
-    trace_id_from_header,
+    trace_id_from_headers,
+    traceparent_from_trace_id,
 )
 from gateway_service.account_client import (
     AccountServiceRejectedError,
@@ -58,7 +60,10 @@ def create_app(
     async def trace_metrics_logging_middleware(request: Request, call_next):
         """Create/propagate trace IDs and record request observability data."""
 
-        trace_id = trace_id_from_header(request.headers.get(TRACE_HEADER))
+        trace_id = trace_id_from_headers(
+            request.headers.get(TRACE_HEADER),
+            request.headers.get(TRACEPARENT_HEADER),
+        )
         token = set_trace_id(trace_id)
         started = time.perf_counter()
         status_code = 500
@@ -66,6 +71,8 @@ def create_app(
             response = await call_next(request)
             status_code = response.status_code
             response.headers[TRACE_HEADER] = trace_id
+            if traceparent := traceparent_from_trace_id(trace_id):
+                response.headers[TRACEPARENT_HEADER] = traceparent
             return response
         finally:
             duration_ms = (time.perf_counter() - started) * 1000
