@@ -4,7 +4,7 @@ flowchart LR
 
   subgraph gatewayBoundary["Event Gateway API - FastAPI"]
     direction TB
-    gateway["Gateway routes<br/>validation, idempotency, trace boundary"]
+    gateway["Gateway routes<br/>validation, idempotency, trace boundary, resiliency"]
     gatewayDb[("Gateway SQLite DB<br/>accepted event records")]
     gateway -->|"read/write events"| gatewayDb
   end
@@ -17,7 +17,7 @@ flowchart LR
   end
 
   client -->|"POST /events<br/>GET /events<br/>GET /accounts/{id}/balance"| gateway
-  gateway -->|"HTTP/JSON<br/>trace headers"| account
+  gateway -->|"HTTP/JSON<br/>trace headers<br/>retry and circuit breaker"| account
 
   classDef actor fill:#eef6ff,stroke:#3b82f6,color:#111827
   classDef service fill:#ecfdf5,stroke:#059669,color:#111827

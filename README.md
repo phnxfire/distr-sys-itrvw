@@ -10,7 +10,7 @@ The solution focuses on correctness, service separation, observability, and grac
 - independent SQLite databases per service
 - structured JSON logs with propagated trace IDs
 - health and metrics endpoints
-- timeout plus retry with exponential backoff for Gateway to Account Service calls
+- timeout, retry, exponential backoff, and a circuit breaker for Gateway to Account Service calls
 
 ## Architecture
 
@@ -45,7 +45,7 @@ Rendered diagram images are also available as SVG files:
 | `GET` | `/accounts/{accountId}/balance` | Proxy balance query to Account Service |
 | `GET` | `/accounts/{accountId}` | Proxy account details query to Account Service |
 | `GET` | `/health` | Gateway health check |
-| `GET` | `/metrics` | Simple JSON request/error/latency metrics |
+| `GET` | `/metrics` | JSON request/error/latency/domain metrics |
 
 ### Account Service
 
@@ -55,7 +55,7 @@ Rendered diagram images are also available as SVG files:
 | `GET` | `/accounts/{accountId}/balance` | Get current account balance |
 | `GET` | `/accounts/{accountId}` | Get balance and recent transactions |
 | `GET` | `/health` | Account Service health check |
-| `GET` | `/metrics` | Simple JSON request/error/latency metrics |
+| `GET` | `/metrics` | JSON request/error/latency/domain metrics |
 
 ## Event Payload
 
@@ -118,6 +118,19 @@ curl -X POST http://localhost:8000/events \
   }'
 ```
 
+## Configuration
+
+| Variable | Default | Used By | Purpose |
+| --- | --- | --- | --- |
+| `GATEWAY_DB_PATH` | `/tmp/event-ledger/gateway.sqlite` | Gateway | Gateway event-store database path |
+| `ACCOUNT_DB_PATH` | `/tmp/event-ledger/account-service.sqlite` | Account Service | Account transaction database path |
+| `ACCOUNT_SERVICE_URL` | `http://localhost:8001` | Gateway | Internal Account Service base URL |
+| `ACCOUNT_SERVICE_TIMEOUT_SECONDS` | `1.5` | Gateway | Per-attempt downstream timeout |
+| `ACCOUNT_SERVICE_MAX_ATTEMPTS` | `3` | Gateway | Maximum attempts before returning `503` |
+| `ACCOUNT_SERVICE_BACKOFF_SECONDS` | `0.1` | Gateway | Base exponential backoff delay |
+| `ACCOUNT_SERVICE_CIRCUIT_FAILURE_THRESHOLD` | `3` | Gateway | Availability failures before opening the circuit |
+| `ACCOUNT_SERVICE_CIRCUIT_RESET_SECONDS` | `5.0` | Gateway | Open-circuit reset window before the next probe |
+
 ## Tests
 
 Run the automated test suite:
@@ -126,7 +139,7 @@ Run the automated test suite:
 make test
 ```
 
-The tests cover validation, idempotency, out-of-order event listing, balance correctness, Account Service failure handling, retry behavior, trace propagation, and an end-to-end Gateway to Account Service flow.
+The tests cover validation, idempotency, out-of-order event listing, balance correctness, Account Service failure handling, retry and circuit breaker behavior, domain metrics, trace propagation, and an end-to-end Gateway to Account Service flow.
 
 ## Diagrams
 
@@ -139,13 +152,14 @@ npm run render:diagrams
 
 ## Resiliency Choice
 
-The Gateway uses **timeout plus retry with exponential backoff** for Account Service calls.
+The Gateway uses **timeout, retry with exponential backoff, and a circuit breaker** for Account Service calls.
 
 This is the best fit for a small synchronous REST system because many Account Service failures are transient: startup race, brief network failure, or short overload. The implementation bounds the blast radius with:
 
 - a short per-request timeout
 - a fixed maximum attempt count
 - exponential backoff between attempts
+- a circuit breaker that short-circuits calls during sustained downstream failure
 - `503 Service Unavailable` responses when the Account Service remains unreachable
 
 Retries are safe because the Account Service also enforces idempotency on `eventId`.
@@ -155,10 +169,12 @@ Retries are safe because the Account Service also enforces idempotency on `event
 Both services expose:
 
 - `GET /health` for status and database diagnostics
-- `GET /metrics` for request counts, error counts, and latency summaries
+- `GET /metrics` for request counts, error counts, latency summaries, and domain event counters
 - JSON structured logs with `timestamp`, `level`, `service`, `trace_id`, and HTTP details
 
 Trace IDs are generated at the Gateway when absent, accepted from `X-Trace-Id` or W3C `traceparent` when present, propagated to the Account Service, logged by both services, and echoed in responses.
+
+Domain metrics separate financial outcomes from transport metrics. Examples include accepted events, duplicate replays, idempotency conflicts, Account Service unavailability, circuit-open protection, applied transactions, and currency conflicts.
 
 ## Design Notes
 

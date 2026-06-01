@@ -4,11 +4,11 @@ flowchart LR
 
   subgraph gatewayBoundary["Event Gateway API"]
     direction LR
-    obs["Observability Middleware<br/>trace ID, JSON logs, metrics"]
+    obs["Observability Middleware<br/>trace ID, JSON logs, request and domain metrics"]
     routes["FastAPI Routes<br/>public event and account proxy endpoints"]
     contracts["Pydantic Contracts<br/>validation and serialization"]
     repo["Gateway Repository<br/>event persistence and idempotency"]
-    accountClient["Account Client<br/>timeout, retry, backoff"]
+    accountClient["Account Client<br/>timeout, retry, backoff, circuit breaker"]
   end
 
   gatewayDb[("Gateway SQLite DB<br/>accepted event records")]

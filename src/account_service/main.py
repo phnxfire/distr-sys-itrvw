@@ -97,7 +97,9 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         """Apply a transaction to one account with idempotent event handling."""
 
         repository: AccountRepository = request.app.state.repository
+        metrics: MetricsRegistry = request.app.state.metrics
         if event.account_id != account_id:
+            metrics.record_domain_event("account.transactions.path_mismatch")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Path accountId must match payload accountId",
@@ -105,15 +107,20 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         try:
             record, created = repository.apply_transaction(event)
         except DuplicateEventConflictError as exc:
+            metrics.record_domain_event("account.transactions.idempotency_conflict")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="eventId already exists with different transaction details",
             ) from exc
         except AccountCurrencyMismatchError as exc:
+            metrics.record_domain_event("account.transactions.currency_conflict")
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
         if not created:
             response.status_code = status.HTTP_200_OK
+            metrics.record_domain_event("account.transactions.duplicate_replay")
+        else:
+            metrics.record_domain_event("account.transactions.applied")
         app.state.logger.info(
             "transaction applied" if created else "duplicate transaction replayed",
             extra={"event_id": event.event_id, "account_id": account_id},

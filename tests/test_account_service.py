@@ -62,10 +62,13 @@ async def test_duplicate_transaction_does_not_change_balance(account_app, event_
         first = await client.post("/accounts/acct-123/transactions", json=event_payload)
         second = await client.post("/accounts/acct-123/transactions", json=event_payload)
         balance = await client.get("/accounts/acct-123/balance")
+        metrics = await client.get("/metrics")
 
     assert first.status_code == 201
     assert second.status_code == 200
     assert balance.json()["balance"] == 150.0
+    assert metrics.json()["domainEvents"]["account.transactions.applied"] == 1
+    assert metrics.json()["domainEvents"]["account.transactions.duplicate_replay"] == 1
 
 
 @pytest.mark.asyncio
@@ -84,10 +87,12 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
     ) as client:
         first = await client.post("/accounts/acct-123/transactions", json=event_payload)
         second = await client.post("/accounts/acct-123/transactions", json=conflicting_payload)
+        metrics = await client.get("/metrics")
 
     assert first.status_code == 201
     assert second.status_code == 409
     assert "different transaction details" in second.json()["detail"]
+    assert metrics.json()["domainEvents"]["account.transactions.idempotency_conflict"] == 1
 
 
 @pytest.mark.asyncio
@@ -104,10 +109,12 @@ async def test_rejects_second_currency_for_existing_account(account_app, event_p
     ) as client:
         first = await client.post("/accounts/acct-123/transactions", json=event_payload)
         second = await client.post("/accounts/acct-123/transactions", json=eur_payload)
+        metrics = await client.get("/metrics")
 
     assert first.status_code == 201
     assert second.status_code == 409
     assert "already uses currency USD" in second.json()["detail"]
+    assert metrics.json()["domainEvents"]["account.transactions.currency_conflict"] == 1
 
 
 @pytest.mark.asyncio
@@ -141,6 +148,7 @@ async def test_health_and_metrics(account_app, event_payload):
     assert health.status_code == 200
     assert health.json()["database"] == "ok"
     assert "POST /accounts/{account_id}/transactions" in metrics.json()["requests"]
+    assert metrics.json()["domainEvents"]["account.transactions.applied"] == 1
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from event_ledger_common.contracts import AccountDetailsResponse, BalanceResponse
-from gateway_service.account_client import AccountServiceUnavailableError
+from gateway_service.account_client import (
+    AccountServiceCircuitOpenError,
+    AccountServiceUnavailableError,
+)
 from gateway_service.db import GatewayRepository
 from gateway_service.main import create_app
 
@@ -19,11 +22,14 @@ class FakeAccountClient:
         self.apply_calls: list[tuple[str, str]] = []
         self.balance_calls: list[tuple[str, str]] = []
         self.fail_apply = False
+        self.apply_circuit_open = False
         self.fail_reads = False
 
     async def apply_transaction(self, event, trace_id: str):
         """Record or reject a Gateway transaction apply call."""
 
+        if self.apply_circuit_open:
+            raise AccountServiceCircuitOpenError("circuit open")
         if self.fail_apply:
             raise AccountServiceUnavailableError("down")
         self.apply_calls.append((event.event_id, trace_id))
@@ -82,12 +88,15 @@ async def test_submit_event_and_duplicate_replay_do_not_reapply(
         first = await client.post("/events", json=event_payload)
         second = await client.post("/events", json=event_payload)
         listed = await client.get("/events", params={"account": "acct-123"})
+        metrics = await client.get("/metrics")
 
     assert first.status_code == 201
     assert second.status_code == 200
     assert listed.status_code == 200
     assert len(listed.json()) == 1
     assert [call[0] for call in fake_account_client.apply_calls] == ["evt-001"]
+    assert metrics.json()["domainEvents"]["gateway.events.accepted"] == 1
+    assert metrics.json()["domainEvents"]["gateway.events.duplicate_replay"] == 1
 
 
 @pytest.mark.asyncio
@@ -106,9 +115,11 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
     ) as client:
         first = await client.post("/events", json=event_payload)
         second = await client.post("/events", json=conflicting_payload)
+        metrics = await client.get("/metrics")
 
     assert first.status_code == 201
     assert second.status_code == 409
+    assert metrics.json()["domainEvents"]["gateway.events.idempotency_conflict"] == 1
 
 
 @pytest.mark.asyncio
@@ -169,12 +180,36 @@ async def test_account_service_failure_returns_503_and_event_reads_still_work(
         rejected = await client.post("/events", json=debit_payload)
         existing_event = await client.get("/events/evt-001")
         listed = await client.get("/events", params={"account": "acct-123"})
+        metrics = await client.get("/metrics")
 
     assert accepted.status_code == 201
     assert rejected.status_code == 503
     assert "not accepted" in rejected.json()["detail"]
     assert existing_event.status_code == 200
     assert len(listed.json()) == 1
+    assert metrics.json()["domainEvents"]["gateway.account_service.unavailable"] == 1
+
+
+@pytest.mark.asyncio
+async def test_account_service_circuit_open_is_observable(
+    gateway_app,
+    fake_account_client,
+    event_payload,
+):
+    """Verify Gateway exposes circuit-open downstream protection as a domain metric."""
+
+    fake_account_client.apply_circuit_open = True
+
+    async with AsyncClient(
+        transport=ASGITransport(app=gateway_app),
+        base_url="http://gateway",
+    ) as client:
+        response = await client.post("/events", json=event_payload)
+        metrics = await client.get("/metrics")
+
+    assert response.status_code == 503
+    assert "circuit breaker is open" in response.json()["detail"]
+    assert metrics.json()["domainEvents"]["gateway.account_service.circuit_open"] == 1
 
 
 @pytest.mark.asyncio
@@ -261,3 +296,4 @@ async def test_health_and_metrics(gateway_app, event_payload):
     assert health.status_code == 200
     assert health.json()["database"] == "ok"
     assert "POST /events" in metrics.json()["requests"]
+    assert metrics.json()["domainEvents"]["gateway.events.accepted"] == 1

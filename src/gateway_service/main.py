@@ -27,6 +27,7 @@ from event_ledger_common.trace import (
     traceparent_from_trace_id,
 )
 from gateway_service.account_client import (
+    AccountServiceCircuitOpenError,
     AccountServiceRejectedError,
     AccountServiceUnavailableError,
     HttpAccountClient,
@@ -52,6 +53,10 @@ def create_app(
         timeout_seconds=float(os.getenv("ACCOUNT_SERVICE_TIMEOUT_SECONDS", "1.5")),
         max_attempts=int(os.getenv("ACCOUNT_SERVICE_MAX_ATTEMPTS", "3")),
         backoff_seconds=float(os.getenv("ACCOUNT_SERVICE_BACKOFF_SECONDS", "0.1")),
+        circuit_failure_threshold=int(
+            os.getenv("ACCOUNT_SERVICE_CIRCUIT_FAILURE_THRESHOLD", "3")
+        ),
+        circuit_reset_seconds=float(os.getenv("ACCOUNT_SERVICE_CIRCUIT_RESET_SECONDS", "5.0")),
     )
     app.state.metrics = MetricsRegistry()
     app.state.logger = get_logger(SERVICE_NAME)
@@ -105,14 +110,17 @@ def create_app(
 
         repository: GatewayRepository = request.app.state.repository
         account_service: HttpAccountClient = request.app.state.account_client
+        metrics: MetricsRegistry = request.app.state.metrics
         existing = repository.get_event(event.event_id)
         if existing:
             if not _same_event(existing, event):
+                metrics.record_domain_event("gateway.events.idempotency_conflict")
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="eventId already exists with different event details",
                 )
             response.status_code = status.HTTP_200_OK
+            metrics.record_domain_event("gateway.events.duplicate_replay")
             app.state.logger.info(
                 "duplicate event replayed",
                 extra={"event_id": event.event_id, "account_id": event.account_id},
@@ -121,17 +129,27 @@ def create_app(
 
         try:
             await account_service.apply_transaction(event, trace_id=get_trace_id())
+        except AccountServiceCircuitOpenError as exc:
+            metrics.record_domain_event("gateway.account_service.circuit_open")
+            metrics.record_domain_event("gateway.account_service.unavailable")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Service circuit breaker is open; transaction was not accepted",
+            ) from exc
         except AccountServiceUnavailableError as exc:
+            metrics.record_domain_event("gateway.account_service.unavailable")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Account Service is unavailable; transaction was not accepted",
             ) from exc
         except AccountServiceRejectedError as exc:
+            metrics.record_domain_event("gateway.account_service.rejected")
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
         try:
             record, created = repository.insert_applied_event(event)
         except DuplicateEventConflictError as exc:
+            metrics.record_domain_event("gateway.events.idempotency_conflict")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="eventId already exists with different event details",
@@ -139,6 +157,9 @@ def create_app(
 
         if not created:
             response.status_code = status.HTTP_200_OK
+            metrics.record_domain_event("gateway.events.duplicate_replay")
+        else:
+            metrics.record_domain_event("gateway.events.accepted")
 
         app.state.logger.info(
             "event accepted",
@@ -177,9 +198,18 @@ def create_app(
         """Proxy account balance reads to the Account Service."""
 
         account_service: HttpAccountClient = request.app.state.account_client
+        metrics: MetricsRegistry = request.app.state.metrics
         try:
             return await account_service.get_balance(account_id, trace_id=get_trace_id())
+        except AccountServiceCircuitOpenError as exc:
+            metrics.record_domain_event("gateway.account_service.circuit_open")
+            metrics.record_domain_event("gateway.account_service.unavailable")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Service circuit breaker is open; balance cannot be retrieved",
+            ) from exc
         except AccountServiceUnavailableError as exc:
+            metrics.record_domain_event("gateway.account_service.unavailable")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Account Service is unavailable; balance cannot be retrieved",
@@ -195,9 +225,21 @@ def create_app(
         """Proxy account detail reads to the Account Service."""
 
         account_service: HttpAccountClient = request.app.state.account_client
+        metrics: MetricsRegistry = request.app.state.metrics
         try:
             return await account_service.get_account(account_id, trace_id=get_trace_id())
+        except AccountServiceCircuitOpenError as exc:
+            metrics.record_domain_event("gateway.account_service.circuit_open")
+            metrics.record_domain_event("gateway.account_service.unavailable")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Account Service circuit breaker is open; "
+                    "account details cannot be retrieved"
+                ),
+            ) from exc
         except AccountServiceUnavailableError as exc:
+            metrics.record_domain_event("gateway.account_service.unavailable")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Account Service is unavailable; account details cannot be retrieved",

@@ -10,7 +10,7 @@ Primary design goals:
 - prevent duplicate `eventId` submissions from double-applying money
 - preserve chronological event history even when events arrive out of order
 - keep Gateway and Account Service state physically separate
-- expose enough logs, metrics, and health signals to operate the system
+- expose logs, trace context, domain metrics, and health signals needed to operate the system
 - degrade clearly when the Account Service is unavailable
 - keep the Account Service internal to Gateway in the Docker Compose runtime
 
@@ -45,7 +45,7 @@ flowchart LR
 
   subgraph gatewayBoundary["Event Gateway API - FastAPI"]
     direction TB
-    gateway["Gateway routes<br/>validation, idempotency, trace boundary"]
+    gateway["Gateway routes<br/>validation, idempotency, trace boundary, resiliency"]
     gatewayDb[("Gateway SQLite DB<br/>accepted event records")]
     gateway -->|"read/write events"| gatewayDb
   end
@@ -58,7 +58,7 @@ flowchart LR
   end
 
   client -->|"POST /events<br/>GET /events<br/>GET /accounts/{id}/balance"| gateway
-  gateway -->|"HTTP/JSON<br/>trace headers"| account
+  gateway -->|"HTTP/JSON<br/>trace headers<br/>retry and circuit breaker"| account
 ```
 
 ### C4 Level 3: Components
@@ -138,12 +138,13 @@ This makes balance independent of event arrival order.
 
 ## Resiliency
 
-The Gateway uses timeout plus retry with exponential backoff for calls to the Account Service.
+The Gateway uses timeout, retry with exponential backoff, and a circuit breaker for calls to the Account Service.
 
 This pattern is intentionally bounded:
 
 - no infinite retries
 - no long client hangs
+- no repeated calls into a downstream service that is already failing continuously
 - no hidden background queue
 - clear `503 Service Unavailable` when the Account Service cannot be reached
 
@@ -164,7 +165,9 @@ Both services include:
 
 - JSON structured logs
 - `X-Trace-Id` and W3C `traceparent` propagation
-- request metrics
+- request metrics plus ledger-specific domain counters
 - health checks with database connectivity diagnostics
 
 The trace ID behavior is a lightweight substitute for full OpenTelemetry in this scoped exercise. W3C `traceparent` support keeps the propagation model compatible with an OpenTelemetry upgrade.
+
+Domain counters make financial outcomes visible without scraping logs. The Gateway reports accepted events, duplicate replays, idempotency conflicts, downstream unavailability, and circuit-open protection. The Account Service reports applied transactions, duplicate replays, idempotency conflicts, and currency conflicts.

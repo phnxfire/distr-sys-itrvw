@@ -24,13 +24,13 @@
 
 **Tradeoff:** This duplicates a small amount of logic, but the duplication is intentional defense in depth around money movement.
 
-## ADR 004: Timeout and Retry With Backoff
+## ADR 004: Timeout, Retry, and Circuit Breaker
 
-**Decision:** Implement timeout plus retry with exponential backoff for Gateway to Account Service calls.
+**Decision:** Implement timeout, retry with exponential backoff, and a circuit breaker for Gateway to Account Service calls.
 
-**Why:** The exercise requires at least one resiliency pattern. Timeout plus retry is easy to reason about and directly addresses transient failures. A bounded retry policy avoids unbounded client hangs.
+**Why:** The exercise requires at least one resiliency pattern. Timeout plus retry directly addresses transient failures, while the circuit breaker protects the Account Service and Gateway worker capacity during sustained failure. The retry policy is bounded to avoid unbounded client hangs.
 
-**Tradeoff:** A circuit breaker would better protect a heavily loaded downstream dependency over time. The chosen pattern is enough for the assignment scope and is safe because Account Service calls are idempotent.
+**Tradeoff:** The circuit breaker is in process and per Gateway instance. A production deployment would externalize visibility through metrics and tune thresholds per environment, but the behavior is enough to demonstrate the pattern safely because Account Service calls are idempotent.
 
 ## ADR 005: Lightweight Trace Propagation With W3C Compatibility
 
@@ -63,6 +63,7 @@
 - **Idempotent Consumer:** duplicate `eventId` requests do not mutate state more than once.
 - **Defensive Idempotency:** both services guard their own write boundary.
 - **Fail Fast:** downstream timeouts are bounded and converted into `503` responses.
+- **Circuit Breaker:** repeated Account Service availability failures are short-circuited for a reset window.
 - **Explicit Contracts:** shared Pydantic models define request and response shapes.
 - **Structured Observability:** logs, metrics, health checks, and trace IDs are first-class behavior.
 - **Deterministic Ordering:** event histories sort by event time, not arrival time.

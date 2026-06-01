@@ -4,7 +4,11 @@ import httpx
 import pytest
 
 from event_ledger_common.contracts import EventPayload
-from gateway_service.account_client import AccountServiceUnavailableError, HttpAccountClient
+from gateway_service.account_client import (
+    AccountServiceCircuitOpenError,
+    AccountServiceUnavailableError,
+    HttpAccountClient,
+)
 
 
 @pytest.mark.asyncio
@@ -96,3 +100,51 @@ async def test_account_client_returns_unavailable_after_bounded_retries(event_pa
         )
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_account_client_opens_circuit_after_downstream_failures(event_payload):
+    """Verify sustained Account Service failures open the client-side circuit."""
+
+    calls = 0
+    current_time = 1000.0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        """Fail once, then recover after the circuit reset window."""
+
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, json={"detail": "still down"})
+        return httpx.Response(201, json={"ok": True})
+
+    client = HttpAccountClient(
+        base_url="http://account-service",
+        max_attempts=1,
+        backoff_seconds=0,
+        circuit_failure_threshold=1,
+        circuit_reset_seconds=60,
+        clock=lambda: current_time,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(AccountServiceUnavailableError):
+        await client.apply_transaction(
+            EventPayload.model_validate(event_payload),
+            trace_id="trace-circuit-123",
+        )
+
+    with pytest.raises(AccountServiceCircuitOpenError, match="circuit breaker"):
+        await client.apply_transaction(
+            EventPayload.model_validate(event_payload),
+            trace_id="trace-circuit-123",
+        )
+
+    current_time = 1061.0
+    result = await client.apply_transaction(
+        EventPayload.model_validate(event_payload),
+        trace_id="trace-circuit-123",
+    )
+
+    assert calls == 2
+    assert result == {"ok": True}

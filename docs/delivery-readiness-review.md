@@ -9,7 +9,7 @@ The project demonstrates a bounded distributed financial event processor with tw
 - Event Gateway API: public API, validation, event idempotency, trace boundary, local event history, Account Service client.
 - Account Service: internal transaction application, balance calculation, account details, transaction history.
 
-The implementation intentionally keeps infrastructure lightweight while preserving the important distributed-systems properties: database-per-service, idempotent writes, out-of-order event tolerance, bounded downstream retries, structured logs, metrics, health checks, and trace propagation.
+The implementation intentionally keeps infrastructure lightweight while preserving the important distributed-systems properties: database-per-service, idempotent writes, out-of-order event tolerance, bounded downstream retries, a circuit breaker, structured logs, request and domain metrics, health checks, and trace propagation.
 
 ## Evaluation Mapping
 
@@ -20,8 +20,8 @@ The implementation intentionally keeps infrastructure lightweight while preservi
 | Multiple upstream systems | Event IDs and timestamps are source-agnostic; metadata can carry source/batch information. | Add upstream authentication, source-level rate limits, schema versioning, and contract tests per producer. |
 | Duplicate delivery | Unique `eventId` constraints in both Gateway and Account Service. | Add dedicated idempotency tables with request hash, response replay, TTL/retention policy, and conflict audit logs. |
 | Out-of-order delivery | Event and transaction history sort by original `eventTimestamp`; balances derive from all applied transactions. | Add correction/reversal events, business-effective dating rules, and late-arrival monitoring. |
-| Observability | JSON logs, trace IDs, W3C `traceparent` support, metrics endpoint, health checks. | Add OpenTelemetry SDK/exporters, Prometheus metrics, dashboards, log correlation, and alerting. |
-| Resiliency | Gateway uses timeout plus bounded retry with exponential backoff on Account Service calls. | Add circuit breaker, bulkheads, retry budgets, and downstream saturation metrics. |
+| Observability | JSON logs, trace IDs, W3C `traceparent` support, request/domain metrics endpoint, health checks. | Add OpenTelemetry SDK/exporters, Prometheus metrics, dashboards, log correlation, and alerting. |
+| Resiliency | Gateway uses timeout, bounded retry with exponential backoff, and a circuit breaker on Account Service calls. | Add bulkheads, retry budgets, connection-pool limits, and downstream saturation metrics. |
 | Operational readiness | Docker Compose, health checks, tests, docs, rendered architecture diagrams. | Add runbooks, SLOs, incident playbooks, migrations, and environment-specific config validation. |
 | Engineering decisions | ADR-style docs explain FastAPI, SQLite, idempotency, tracing, and retry choices. | Add explicit threat model, scalability model, and data retention policy. |
 
@@ -33,7 +33,7 @@ The Gateway handles `POST /events` as the public consistency boundary:
 2. Checks local Gateway storage for an existing `eventId`.
 3. Returns `200 OK` for exact duplicate replays without calling Account Service.
 4. Returns `409 Conflict` when an existing `eventId` is reused with different details.
-5. Calls Account Service for new events using HTTP with timeout, retry, and trace propagation.
+5. Calls Account Service for new events using HTTP with timeout, retry, circuit breaker protection, and trace propagation.
 6. Stores the Gateway event record only after Account Service applies or idempotently replays the transaction.
 7. Returns `201 Created` for newly accepted events.
 
@@ -114,14 +114,14 @@ The current observability is useful for local operation and review:
 - structured JSON request logs
 - trace correlation across services
 - `/health` database diagnostics
-- `/metrics` request counts, 5xx counts, and latency summaries
+- `/metrics` request counts, 5xx counts, latency summaries, and domain counters
 - clear `503` responses during Account Service outages
 
 Recommended production improvements:
 
 1. Replace in-memory metrics with Prometheus counters and histograms.
 2. Add RED metrics: request rate, error rate, duration.
-3. Add ledger-specific metrics: duplicate event count, idempotency conflict count, Account Service retry count, late-arriving event count.
+3. Expand ledger-specific metrics with retry attempts, circuit breaker state gauges, late-arriving event count, and source-system labels.
 4. Add structured audit events for accepted, replayed, rejected, and failed transactions.
 5. Add alerting for elevated 5xx rate, retry exhaustion, latency, and database health failures.
 6. Add dashboards for Gateway traffic, Account Service traffic, downstream retries, and transaction acceptance.
@@ -129,14 +129,14 @@ Recommended production improvements:
 
 ## Resiliency Improvement Plan
 
-Current resiliency is timeout plus retry with exponential backoff. This is appropriate for transient Account Service failures and is safe because Account Service enforces idempotency.
+Current resiliency is timeout, retry with exponential backoff, and a circuit breaker. This is appropriate for transient Account Service failures, protects the dependency during sustained failure, and is safe because Account Service enforces idempotency.
 
 Recommended production improvements:
 
-1. Add a circuit breaker to stop calling Account Service during sustained failure.
-2. Add retry budgets to prevent retry storms.
-3. Add bulkhead isolation for outbound Account Service calls.
-4. Add connection pooling and explicit pool limits.
+1. Add retry budgets to prevent retry storms.
+2. Add bulkhead isolation for outbound Account Service calls.
+3. Add connection pooling and explicit pool limits.
+4. Export circuit breaker state gauges and open-count metrics to the metrics backend.
 5. Add an outbox pattern if the product requirement changes from synchronous rejection to asynchronous acceptance.
 6. Add reconciliation to detect Gateway/Account divergence after process crashes.
 
@@ -157,7 +157,7 @@ This solution is ready as a take-home submission because it demonstrates the req
 - graceful degradation
 - trace propagation
 - structured logs
-- health and metrics endpoints
+- health, request metrics, and domain metrics endpoints
 - automated tests
 - architecture documentation and diagrams
 

@@ -4,7 +4,7 @@ flowchart LR
 
   subgraph accountBoundary["Account Service"]
     direction LR
-    obs["Observability Middleware<br/>trace ID, JSON logs, metrics"]
+    obs["Observability Middleware<br/>trace ID, JSON logs, request and domain metrics"]
     routes["FastAPI Routes<br/>transaction and account endpoints"]
     contracts["Pydantic Contracts<br/>contract validation and serialization"]
     repo["Account Repository<br/>idempotent transactions and balances"]
