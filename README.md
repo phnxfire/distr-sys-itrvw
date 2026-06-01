@@ -177,33 +177,6 @@ make test
 
 The tests cover validation, idempotency, out-of-order event listing, balance correctness, Account Service failure handling, retry and circuit breaker behavior, domain metrics, trace propagation, and an end-to-end Gateway to Account Service flow.
 
-## Postman
-
-Import one of the checked-in Postman collections to run evaluator-friendly request sequences against a local server:
-
-- [Basic Take-Home Collection](docs/postman/Event-Ledger.postman_collection.json): concise happy path and core behavior demo.
-- [Interview Demo Collection](docs/postman/Event-Ledger-Interview-Demo.postman_collection.json): broader requirement-by-requirement demo, including validation, direct internal Account Service checks, observability, and a manual graceful-degradation/circuit-breaker folder.
-
-The collection covers:
-
-- Gateway and Account Service health checks
-- successful credit submission
-- exact duplicate replay
-- conflicting duplicate rejection
-- out-of-order debit submission
-- chronological event listing
-- balance and account detail reads
-- Gateway domain metrics
-
-Run the services first. The full interview collection is easiest with the local `make run-account` and `make run-gateway` commands because it includes optional direct Account Service checks. `docker compose up --build` intentionally exposes only the Gateway to the host, so direct Account Service requests from Postman should be skipped unless you temporarily publish port `8001`.
-
-The collections default to:
-
-- Gateway: `http://127.0.0.1:8000`
-- Account Service: `http://127.0.0.1:8001`
-
-For the manual graceful-degradation folder in the interview collection, first run the normal folders, then stop only Account Service, set the collection variable `runFailureDemo` to `true`, and run the manual folder. Restart Account Service afterward.
-
 ## Diagrams
 
 The Mermaid C4 source files live under `docs/diagrams/*.mmd`. Rendered SVG images can be regenerated with:
