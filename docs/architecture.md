@@ -15,7 +15,14 @@ Primary design goals:
 
 ## C4 Diagrams
 
-The C4 diagram source files are stored under [docs/diagrams](diagrams).
+The C4 diagram source files are stored under [docs/diagrams](diagrams), with rendered SVG images checked in for easy review.
+
+Rendered images:
+
+- [System Context](diagrams/c4-context.svg)
+- [Container Diagram](diagrams/c4-container.svg)
+- [Gateway Component Diagram](diagrams/c4-component-gateway.svg)
+- [Account Service Component Diagram](diagrams/c4-component-account-service.svg)
 
 ### C4 Level 1: System Context
 

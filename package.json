@@ -1,0 +1,14 @@
+{
+  "name": "event-ledger",
+  "version": "1.0.0",
+  "description": "Event Ledger is a two-service take-home project for processing financial transaction events from upstream systems that can deliver duplicates and out-of-order events.",
+  "private": true,
+  "scripts": {
+    "render:diagrams": "mmdc -p docs/diagrams/puppeteer-config.json -i docs/diagrams/c4-context.mmd -o docs/diagrams/c4-context.svg && mmdc -p docs/diagrams/puppeteer-config.json -i docs/diagrams/c4-container.mmd -o docs/diagrams/c4-container.svg && mmdc -p docs/diagrams/puppeteer-config.json -i docs/diagrams/c4-component-gateway.mmd -o docs/diagrams/c4-component-gateway.svg && mmdc -p docs/diagrams/puppeteer-config.json -i docs/diagrams/c4-component-account-service.mmd -o docs/diagrams/c4-component-account-service.svg"
+  },
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.15.0"
+  }
+}

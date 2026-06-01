@@ -25,6 +25,13 @@ The Gateway and Account Service do not share database connections, tables, or in
 
 See [docs/architecture.md](docs/architecture.md) for C4 diagrams and request-flow details.
 
+Rendered diagram images are also available as SVG files:
+
+- [System Context](docs/diagrams/c4-context.svg)
+- [Container Diagram](docs/diagrams/c4-container.svg)
+- [Gateway Component Diagram](docs/diagrams/c4-component-gateway.svg)
+- [Account Service Component Diagram](docs/diagrams/c4-component-account-service.svg)
+
 ## API
 
 ### Gateway
@@ -119,6 +126,15 @@ make test
 ```
 
 The tests cover validation, idempotency, out-of-order event listing, balance correctness, Account Service failure handling, retry behavior, trace propagation, and an end-to-end Gateway to Account Service flow.
+
+## Diagrams
+
+The Mermaid C4 source files live under `docs/diagrams/*.mmd`. Rendered SVG images can be regenerated with:
+
+```bash
+npm install
+npm run render:diagrams
+```
 
 ## Resiliency Choice
 
