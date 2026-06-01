@@ -1,5 +1,7 @@
 # Event Ledger
 
+[![CI](https://github.com/phnxfire/distr-sys-itrvw/actions/workflows/ci.yml/badge.svg)](https://github.com/phnxfire/distr-sys-itrvw/actions/workflows/ci.yml)
+
 Event Ledger is a two-service take-home project for processing financial transaction events from upstream systems that can deliver duplicates and out-of-order events.
 
 The solution focuses on correctness, service separation, observability, and graceful failure:
@@ -11,6 +13,40 @@ The solution focuses on correctness, service separation, observability, and grac
 - structured JSON logs with propagated trace IDs
 - health and metrics endpoints
 - timeout, retry, exponential backoff, and a circuit breaker for Gateway to Account Service calls
+
+## Evaluator Quick Start
+
+Validate the project locally:
+
+```bash
+make install
+make lint
+make test
+```
+
+Run both services with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Submit a sample event through the public Gateway:
+
+```bash
+curl -X POST http://localhost:8000/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventId": "evt-001",
+    "accountId": "acct-123",
+    "type": "CREDIT",
+    "amount": 150.0,
+    "currency": "USD",
+    "eventTimestamp": "2026-05-15T14:02:11Z",
+    "metadata": {"source": "mainframe-batch"}
+  }'
+```
+
+For requirement-by-requirement coverage, see [Requirements Traceability](docs/requirements-traceability.md).
 
 ## Architecture
 
@@ -181,6 +217,7 @@ Domain metrics separate financial outcomes from transport metrics. Examples incl
 Additional architecture and technical decision documentation:
 
 - [Architecture](docs/architecture.md)
+- [Requirements Traceability](docs/requirements-traceability.md)
 - [Delivery Readiness Review](docs/delivery-readiness-review.md)
 - [Technical Decisions](docs/technical-decisions.md)
 - [C4 Context Diagram](docs/diagrams/c4-context.mmd)
