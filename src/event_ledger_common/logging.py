@@ -1,4 +1,12 @@
-"""Structured logging helpers shared by both services."""
+"""Structured logging helpers shared by both services.
+
+Engineering view: one formatter/filter pair keeps log shape consistent across
+Gateway and Account Service.
+Architecture view: structured logs are the common observability contract until
+a centralized log backend or OpenTelemetry collector is introduced.
+Business view: trace-aware logs let operators explain what happened to a
+financial event without manually stitching together free-form text.
+"""
 
 from __future__ import annotations
 
@@ -13,16 +21,28 @@ _CONFIGURED_LOGGERS: set[str] = set()
 
 
 class JsonFormatter(logging.Formatter):
-    """Render service logs as flat JSON objects suitable for aggregation."""
+    """Render service logs as flat JSON objects suitable for aggregation.
+
+    Operations view: flat keys are easy for log processors, dashboards, and
+    incident searches to index.
+    """
 
     def __init__(self, service_name: str) -> None:
-        """Create a formatter that stamps every record with a service name."""
+        """Create a formatter that stamps every record with a service name.
+
+        Architecture view: service identity is mandatory in a distributed
+        system because multiple processes emit logs for one client request.
+        """
 
         super().__init__()
         self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format one logging record as a compact JSON object."""
+        """Format one logging record as a compact JSON object.
+
+        Engineering view: optional fields are copied only when present so route
+        logs, domain logs, and exception logs can share the same formatter.
+        """
 
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -53,17 +73,29 @@ class JsonFormatter(logging.Formatter):
 
 
 class TraceContextFilter(logging.Filter):
-    """Attach the active request trace ID to each emitted log record."""
+    """Attach the active request trace ID to each emitted log record.
+
+    Architecture view: logs become correlation-ready without every call site
+    needing to pass trace IDs manually.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Attach trace context and allow the record to be emitted."""
+        """Attach trace context and allow the record to be emitted.
+
+        Engineering view: returning True preserves normal logging flow after
+        enriching the record with request context.
+        """
 
         record.trace_id = get_trace_id()
         return True
 
 
 def get_logger(service_name: str) -> logging.Logger:
-    """Return an idempotently configured service logger."""
+    """Return an idempotently configured service logger.
+
+    Engineering view: the guard avoids duplicate handlers during tests and
+    development reloads, which would otherwise duplicate every log line.
+    """
 
     logger = logging.getLogger(service_name)
     logger.setLevel(logging.INFO)

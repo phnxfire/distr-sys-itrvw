@@ -1,3 +1,11 @@
+"""Account Service tests for the internal account-state boundary.
+
+Business view: these tests prove account balances are correct, duplicates do
+not change money twice, and conflicting financial facts are rejected.
+Architecture view: the tests exercise Account Service directly because it owns
+transactions and balances independent of Gateway.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -11,7 +19,11 @@ from account_service.main import create_app
 
 @pytest.fixture
 def account_app(tmp_path):
-    """Create an Account Service app backed by an isolated SQLite file."""
+    """Create an Account Service app backed by an isolated SQLite file.
+
+    Engineering view: each test gets fresh embedded persistence so account
+    state never leaks between scenarios.
+    """
 
     return create_app(repository=AccountRepository(tmp_path / "account.sqlite"))
 
@@ -22,7 +34,11 @@ async def test_applies_transactions_and_computes_balance_out_of_order(
     event_payload,
     debit_payload,
 ):
-    """Verify balance and history are correct when events arrive out of order."""
+    """Verify balance and history are correct when events arrive out of order.
+
+    Business view: the account result must depend on transaction facts, not
+    upstream delivery order.
+    """
 
     older_debit = deepcopy(debit_payload)
     older_debit["eventTimestamp"] = "2026-05-15T13:02:11Z"
@@ -53,7 +69,11 @@ async def test_applies_transactions_and_computes_balance_out_of_order(
 
 @pytest.mark.asyncio
 async def test_duplicate_transaction_does_not_change_balance(account_app, event_payload):
-    """Verify duplicate transaction replays do not change account balance."""
+    """Verify duplicate transaction replays do not change account balance.
+
+    Business view: duplicate delivery must not double-credit or double-debit a
+    customer account.
+    """
 
     async with AsyncClient(
         transport=ASGITransport(app=account_app),
@@ -76,7 +96,11 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
     account_app,
     event_payload,
 ):
-    """Verify conflicting transaction payloads for one eventId are rejected."""
+    """Verify conflicting transaction payloads for one eventId are rejected.
+
+    Business view: a reused eventId with different amount or metadata is an
+    idempotency conflict, not a valid update.
+    """
 
     conflicting_payload = deepcopy(event_payload)
     conflicting_payload["amount"] = 151.0
@@ -97,7 +121,11 @@ async def test_duplicate_event_id_with_different_payload_is_conflict(
 
 @pytest.mark.asyncio
 async def test_rejects_second_currency_for_existing_account(account_app, event_payload):
-    """Verify an account cannot mix currencies in this ledger model."""
+    """Verify an account cannot mix currencies in this ledger model.
+
+    Business view: the simplified balance model cannot safely sum different
+    currencies into one number.
+    """
 
     eur_payload = deepcopy(event_payload)
     eur_payload["eventId"] = "evt-eur"
@@ -119,7 +147,11 @@ async def test_rejects_second_currency_for_existing_account(account_app, event_p
 
 @pytest.mark.asyncio
 async def test_validation_rejects_bad_transaction(account_app, event_payload):
-    """Verify invalid transaction amounts fail validation."""
+    """Verify invalid transaction amounts fail validation.
+
+    Engineering view: invalid financial input is rejected by the shared contract
+    before repository code can persist it.
+    """
 
     bad_payload = deepcopy(event_payload)
     bad_payload["amount"] = 0
@@ -135,7 +167,11 @@ async def test_validation_rejects_bad_transaction(account_app, event_payload):
 
 @pytest.mark.asyncio
 async def test_health_and_metrics(account_app, event_payload):
-    """Verify Account Service health and metrics endpoints return diagnostics."""
+    """Verify Account Service health and metrics endpoints return diagnostics.
+
+    Operations view: health and metrics expose service readiness and business
+    outcomes without external tooling.
+    """
 
     async with AsyncClient(
         transport=ASGITransport(app=account_app),
@@ -153,7 +189,11 @@ async def test_health_and_metrics(account_app, event_payload):
 
 @pytest.mark.asyncio
 async def test_traceparent_is_accepted_and_echoed(account_app):
-    """Verify Account Service accepts W3C traceparent and echoes trace context."""
+    """Verify Account Service accepts W3C traceparent and echoes trace context.
+
+    Architecture view: the internal service participates in distributed trace
+    propagation instead of becoming an observability dead end.
+    """
 
     trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     traceparent = f"00-{trace_id}-00f067aa0ba902b7-01"

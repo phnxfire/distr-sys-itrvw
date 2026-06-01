@@ -1,4 +1,12 @@
-"""HTTP client used by Gateway to call the internal Account Service."""
+"""HTTP client used by Gateway to call the internal Account Service.
+
+Engineering view: this module isolates HTTP transport, retries, timeouts, trace
+headers, and circuit breaker state from Gateway route handlers.
+Architecture view: it is the synchronous REST adapter between the public
+Gateway boundary and the internal Account Service boundary.
+Business view: safe downstream calls are essential because retries must never
+apply money twice.
+"""
 
 from __future__ import annotations
 
@@ -14,22 +22,39 @@ from event_ledger_common.trace import TRACE_HEADER, TRACEPARENT_HEADER, tracepar
 
 
 class AccountServiceUnavailableError(Exception):
-    """Raised when Account Service cannot be reached after bounded retries."""
+    """Raised when Account Service cannot be reached after bounded retries.
+
+    Business view: Gateway converts this into a clear `503` so clients know the
+    transaction was not accepted.
+    """
 
     pass
 
 
 class AccountServiceCircuitOpenError(AccountServiceUnavailableError):
-    """Raised when the client-side circuit breaker rejects a downstream call."""
+    """Raised when the client-side circuit breaker rejects a downstream call.
+
+    Operations view: this distinguishes dependency protection from a direct
+    failed network call, which is useful for alerts and interview discussion.
+    """
 
     pass
 
 
 class AccountServiceRejectedError(Exception):
-    """Raised for non-retriable Account Service validation or contract failures."""
+    """Raised for non-retriable Account Service validation or contract failures.
+
+    Architecture view: 4xx downstream responses are business or contract
+    outcomes, not availability failures, so the retry/circuit-breaker path does
+    not treat them as outages.
+    """
 
     def __init__(self, status_code: int, detail: Any) -> None:
-        """Capture the downstream HTTP status and response detail."""
+        """Capture the downstream HTTP status and response detail.
+
+        Engineering view: preserving the original status and detail lets the
+        Gateway translate Account Service rejections without losing context.
+        """
 
         super().__init__(str(detail))
         self.status_code = status_code
@@ -57,7 +82,11 @@ class HttpAccountClient:
         clock: Callable[[], float] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        """Configure Account Service connectivity, retry, and circuit breaker policy."""
+        """Configure Account Service connectivity, retry, and circuit breaker policy.
+
+        Architecture view: all resiliency knobs are constructor arguments so
+        tests and deployment config can tune behavior without changing handlers.
+        """
 
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -71,7 +100,11 @@ class HttpAccountClient:
         self.transport = transport
 
     async def apply_transaction(self, event: EventPayload, trace_id: str) -> dict[str, Any]:
-        """Apply one transaction through the Account Service transaction endpoint."""
+        """Apply one transaction through the Account Service transaction endpoint.
+
+        Business view: this is the money-moving call; all retries are safe only
+        because Account Service enforces eventId idempotency.
+        """
 
         return await self._request(
             "POST",
@@ -81,7 +114,11 @@ class HttpAccountClient:
         )
 
     async def get_balance(self, account_id: str, trace_id: str) -> BalanceResponse:
-        """Fetch current account balance from Account Service."""
+        """Fetch current account balance from Account Service.
+
+        Architecture view: Gateway proxies account reads instead of owning
+        account state, preserving service separation.
+        """
 
         payload = await self._request(
             "GET",
@@ -91,7 +128,11 @@ class HttpAccountClient:
         return BalanceResponse.model_validate(payload)
 
     async def get_account(self, account_id: str, trace_id: str) -> AccountDetailsResponse:
-        """Fetch account balance and recent transactions from Account Service."""
+        """Fetch account balance and recent transactions from Account Service.
+
+        Business view: this returns the current balance plus supporting history
+        from the service that owns account state.
+        """
 
         payload = await self._request(
             "GET",
@@ -113,6 +154,9 @@ class HttpAccountClient:
         Only connection, timeout, and 5xx failures are retried. 4xx responses are
         treated as deterministic caller or contract errors. The circuit breaker
         opens only after all retry attempts fail for availability reasons.
+
+        Engineering view: retry and breaker behavior lives here instead of in
+        route handlers so every downstream operation gets the same protection.
         """
 
         self._ensure_circuit_allows_request()
@@ -191,13 +235,21 @@ class HttpAccountClient:
         raise AccountServiceCircuitOpenError("Account Service circuit breaker is open")
 
     def _record_downstream_success(self) -> None:
-        """Close the circuit and clear failure state after a successful response."""
+        """Close the circuit and clear failure state after a successful response.
+
+        Operations view: a successful probe means Account Service is healthy
+        enough to resume normal traffic.
+        """
 
         self._consecutive_failures = 0
         self._circuit_opened_at = None
 
     def _record_downstream_failure(self) -> None:
-        """Track availability failures and open the circuit at the threshold."""
+        """Track availability failures and open the circuit at the threshold.
+
+        Operations view: repeated availability failures should shift the system
+        from retrying to fast-failing so resources are not exhausted.
+        """
 
         self._consecutive_failures += 1
         if self._consecutive_failures >= self.circuit_failure_threshold:
@@ -205,7 +257,11 @@ class HttpAccountClient:
 
 
 def _response_detail(response: httpx.Response) -> Any:
-    """Extract a useful error detail from an HTTPX response."""
+    """Extract a useful error detail from an HTTPX response.
+
+    Engineering view: route handlers should surface meaningful downstream
+    details whether the body is JSON or plain text.
+    """
 
     try:
         body = response.json()

@@ -1,4 +1,12 @@
-"""ASGI application for the internal Account Service."""
+"""ASGI application for the internal Account Service.
+
+Engineering view: this module wires the Account Service HTTP boundary to its
+repository, observability middleware, and response contracts.
+Architecture view: Account Service is internal and owns account state; Gateway
+is the only intended caller in the composed runtime.
+Business view: this service is responsible for applying transactions exactly
+once and reporting account balances accurately.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +43,13 @@ SERVICE_NAME = "account-service"
 
 
 def create_app(repository: AccountRepository | None = None) -> FastAPI:
-    """Create an Account Service app with injectable persistence for tests."""
+    """Create an Account Service app with injectable persistence for tests.
+
+    Engineering view: injectable persistence makes idempotency and balance tests
+    isolated, fast, and deterministic.
+    Architecture view: the default repository is service-owned storage, not a
+    shared database with Gateway.
+    """
 
     app = FastAPI(title="Event Ledger Account Service", version="0.1.0")
     app.state.repository = repository or AccountRepository(
@@ -46,7 +60,11 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def trace_metrics_logging_middleware(request: Request, call_next):
-        """Attach trace context, request metrics, and JSON request logging."""
+        """Attach trace context, request metrics, and JSON request logging.
+
+        Operations view: Account Service logs can be correlated with Gateway
+        logs for a single financial event submission.
+        """
 
         trace_id = trace_id_from_headers(
             request.headers.get(TRACE_HEADER),
@@ -94,7 +112,14 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         response: Response,
         request: Request,
     ) -> TransactionRecord:
-        """Apply a transaction to one account with idempotent event handling."""
+        """Apply a transaction to one account with idempotent event handling.
+
+        Business view: this is the account-state mutation path. It applies a
+        new transaction once, returns exact duplicate replays, and rejects
+        conflicting or cross-account requests.
+        Architecture view: Gateway can retry this endpoint safely because the
+        Account Service protects its own write boundary.
+        """
 
         repository: AccountRepository = request.app.state.repository
         metrics: MetricsRegistry = request.app.state.metrics
@@ -132,7 +157,11 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         account_id: str,
         request: Request,
     ) -> BalanceResponse:
-        """Return the Account Service-owned balance for an account."""
+        """Return the Account Service-owned balance for an account.
+
+        Business view: the balance is derived from applied transactions so it
+        remains correct even when events arrived out of order.
+        """
 
         repository: AccountRepository = request.app.state.repository
         return repository.get_balance(account_id)
@@ -142,14 +171,22 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
         account_id: str,
         request: Request,
     ) -> AccountDetailsResponse:
-        """Return account balance and recent chronological transactions."""
+        """Return account balance and recent chronological transactions.
+
+        Business view: the response explains both the current amount and the
+        event-time-ordered transactions behind it.
+        """
 
         repository: AccountRepository = request.app.state.repository
         return repository.get_account_details(account_id)
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
-        """Return service status and database connectivity diagnostics."""
+        """Return service status and database connectivity diagnostics.
+
+        Operations view: this supports Docker health checks and quick manual
+        verification that account persistence is reachable.
+        """
 
         repository: AccountRepository = request.app.state.repository
         database_status = "ok" if repository.health_check() else "unavailable"
@@ -162,7 +199,11 @@ def create_app(repository: AccountRepository | None = None) -> FastAPI:
 
     @app.get("/metrics")
     async def metrics(request: Request):
-        """Return in-process request counters and latency summaries."""
+        """Return in-process request, latency, error, and domain counters.
+
+        Operations view: reviewers can observe applied transactions, duplicates,
+        and conflicts without reading logs or attaching external tooling.
+        """
 
         return request.app.state.metrics.snapshot()
 

@@ -1,4 +1,12 @@
-"""Persistence boundary for Gateway-owned event records."""
+"""Persistence boundary for Gateway-owned event records.
+
+Engineering view: repository methods keep SQL, locking, and row mapping out of
+HTTP route handlers.
+Architecture view: this module is the Gateway's private database boundary; the
+Account Service never reads or writes these tables.
+Business view: Gateway event records are the public audit trail for accepted
+events.
+"""
 
 from __future__ import annotations
 
@@ -14,16 +22,28 @@ from event_ledger_common.time import format_timestamp, parse_timestamp, utc_now
 
 
 class DuplicateEventConflictError(Exception):
-    """Raised when an eventId is reused with different event details."""
+    """Raised when an eventId is reused with different event details.
+
+    Business view: the same idempotency key cannot represent two different
+    financial events.
+    """
 
     pass
 
 
 class GatewayRepository:
-    """SQLite-backed repository owned exclusively by the Event Gateway."""
+    """SQLite-backed repository owned exclusively by the Event Gateway.
+
+    Architecture view: keeping this repository separate from AccountRepository
+    demonstrates database-per-service ownership.
+    """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        """Open the SQLite database and initialize the event schema."""
+        """Open the SQLite database and initialize the event schema.
+
+        Engineering view: one connection is protected by an RLock so the
+        embedded database remains safe in local concurrent request handling.
+        """
 
         self.db_path = str(db_path)
         if self.db_path != ":memory:":
@@ -35,7 +55,11 @@ class GatewayRepository:
         self._initialize()
 
     def _initialize(self) -> None:
-        """Create the service-owned event schema and account listing index."""
+        """Create the service-owned event schema and account listing index.
+
+        Architecture view: the unique primary key is the database-level
+        backstop for Gateway idempotency.
+        """
 
         with self._conn:
             self._conn.execute(
@@ -62,12 +86,20 @@ class GatewayRepository:
             )
 
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
+        """Close the underlying SQLite connection.
+
+        Engineering view: explicit close supports clean test teardown and
+        future lifecycle hooks.
+        """
 
         self._conn.close()
 
     def health_check(self) -> bool:
-        """Verify that the repository can execute a simple database query."""
+        """Verify that the repository can execute a simple database query.
+
+        Operations view: the `/health` endpoint uses this as a direct local
+        persistence diagnostic.
+        """
 
         with self._lock:
             self._conn.execute("SELECT 1").fetchone()
@@ -79,6 +111,9 @@ class GatewayRepository:
         Returns the stored event and a boolean indicating whether this call
         inserted a new row. Replays with identical payloads are returned without
         writing another event.
+
+        Business view: the Gateway records only accepted/applied events so a
+        public event read does not imply account state that never happened.
         """
 
         with self._lock:
@@ -127,7 +162,11 @@ class GatewayRepository:
             return inserted, True
 
     def get_event(self, event_id: str) -> EventRecord | None:
-        """Fetch one Gateway event by idempotency key."""
+        """Fetch one Gateway event by idempotency key.
+
+        Business view: this supports client replay behavior and public event
+        lookup without depending on Account Service availability.
+        """
 
         row = self._conn.execute(
             """
@@ -141,7 +180,11 @@ class GatewayRepository:
         return _event_from_row(row) if row else None
 
     def list_events_for_account(self, account_id: str) -> list[EventRecord]:
-        """List account events ordered by original event time, not arrival time."""
+        """List account events ordered by original event time, not arrival time.
+
+        Architecture view: out-of-order tolerance is implemented by sorting on
+        business event time, with eventId as a deterministic tie-breaker.
+        """
 
         rows = self._conn.execute(
             """
@@ -157,13 +200,21 @@ class GatewayRepository:
 
 
 def _metadata_json(value: dict[str, Any]) -> str:
-    """Serialize metadata deterministically for storage and comparison."""
+    """Serialize metadata deterministically for storage and comparison.
+
+    Engineering view: stable JSON avoids false idempotency conflicts caused by
+    dictionary key order.
+    """
 
     return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
 
 
 def _event_from_row(row: sqlite3.Row) -> EventRecord:
-    """Map a SQLite event row into the API response contract."""
+    """Map a SQLite event row into the API response contract.
+
+    Architecture view: row mapping stays at the persistence boundary so API
+    models do not leak SQL concerns into route handlers.
+    """
 
     return EventRecord(
         eventId=row["event_id"],
@@ -180,7 +231,11 @@ def _event_from_row(row: sqlite3.Row) -> EventRecord:
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
-    """Return whether two event payloads represent the same business event."""
+    """Return whether two event payloads represent the same business event.
+
+    Business view: idempotency accepts exact replays but rejects accidental or
+    malicious reuse of an eventId for different money movement.
+    """
 
     return (
         existing.event_id == incoming.event_id

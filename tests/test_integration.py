@@ -1,3 +1,9 @@
+"""End-to-end tests across the Gateway and Account Service ASGI applications.
+
+Architecture view: this module proves the two service boundaries work together
+over HTTP-style transports while still using isolated embedded databases.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -12,7 +18,11 @@ from gateway_service.main import create_app as create_gateway_app
 
 @pytest.mark.asyncio
 async def test_full_gateway_to_account_service_flow(tmp_path, event_payload, debit_payload):
-    """Exercise the full Gateway to Account Service transaction flow."""
+    """Exercise the full Gateway to Account Service transaction flow.
+
+    Business view: this test shows the complete path from public event intake to
+    account balance and event-history reads.
+    """
 
     account_app = create_account_app(
         repository=AccountRepository(tmp_path / "account-integration.sqlite")

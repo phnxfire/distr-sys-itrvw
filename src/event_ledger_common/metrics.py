@@ -1,4 +1,12 @@
-"""Small in-process metrics registry used by /metrics endpoints."""
+"""Small in-process metrics registry used by /metrics endpoints.
+
+Engineering view: this lightweight registry gives deterministic local metrics
+without requiring Prometheus or OpenTelemetry infrastructure for the take-home.
+Architecture view: the JSON shape mirrors counters and histograms that would be
+exported to a production metrics backend.
+Business view: domain counters make ledger outcomes visible, not just HTTP
+traffic.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +24,11 @@ class MetricsRegistry:
     """
 
     def __init__(self) -> None:
-        """Initialize empty in-memory counters."""
+        """Initialize empty in-memory counters.
+
+        Engineering view: the lock keeps updates safe when FastAPI executes
+        request handlers concurrently in the same process.
+        """
 
         self._lock = Lock()
         self._request_counts: dict[str, int] = defaultdict(int)
@@ -34,7 +46,11 @@ class MetricsRegistry:
         status_code: int,
         duration_ms: float,
     ) -> None:
-        """Record one completed HTTP request."""
+        """Record one completed HTTP request.
+
+        Operations view: request count, server error count, and duration are the
+        basic RED signals needed to understand service health.
+        """
 
         key = f"{method} {path}"
         with self._lock:
@@ -63,7 +79,11 @@ class MetricsRegistry:
             self._domain_counts[name] += amount
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a JSON-serializable metrics snapshot."""
+        """Return a JSON-serializable metrics snapshot.
+
+        Architecture view: handlers expose a read-only copy so callers cannot
+        mutate the live registry.
+        """
 
         with self._lock:
             latency = {

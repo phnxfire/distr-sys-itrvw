@@ -1,4 +1,12 @@
-"""Trace context helpers used by service middleware and outbound clients."""
+"""Trace context helpers used by service middleware and outbound clients.
+
+Engineering view: the helpers centralize header parsing and async context
+management so request handlers do not duplicate tracing logic.
+Architecture view: this module is the thin substitute for full OpenTelemetry in
+the take-home scope while preserving W3C trace context compatibility.
+Business view: trace IDs make a single financial event submission explainable
+across Gateway logs, Account Service logs, and client responses.
+"""
 
 from __future__ import annotations
 
@@ -19,38 +27,62 @@ _trace_id: ContextVar[str] = ContextVar("trace_id", default="-")
 
 
 def new_trace_id() -> str:
-    """Create a new opaque trace identifier."""
+    """Create a new opaque trace identifier.
+
+    Engineering view: UUID hex values are simple, collision-resistant local
+    identifiers and also match W3C trace ID formatting.
+    """
 
     return uuid4().hex
 
 
 def get_trace_id() -> str:
-    """Return the active request trace identifier."""
+    """Return the active request trace identifier.
+
+    Architecture view: logging, metrics, and outbound clients can access trace
+    context without threading it through every function signature.
+    """
 
     return _trace_id.get()
 
 
 def set_trace_id(trace_id: str):
-    """Bind a trace identifier to the current async context."""
+    """Bind a trace identifier to the current async request context.
+
+    Engineering view: this keeps concurrent FastAPI requests isolated even when
+    they run on the same event loop.
+    """
 
     return _trace_id.set(trace_id)
 
 
 def reset_trace_id(token) -> None:
-    """Restore the previous trace context after request processing."""
+    """Restore the previous trace context after request processing.
+
+    Engineering view: explicit cleanup prevents one request's trace ID from
+    leaking into later work handled by the same process.
+    """
 
     _trace_id.reset(token)
 
 
 def trace_id_from_header(value: str | None) -> str:
-    """Use a caller-supplied trace ID or create a new one when absent."""
+    """Use a caller-supplied trace ID or create a new one when absent.
+
+    Business view: callers that already have a correlation ID can keep their
+    audit trail intact; otherwise the Gateway starts one.
+    """
 
     normalized = (value or "").strip()
     return normalized or new_trace_id()
 
 
 def trace_id_from_headers(trace_id: str | None, traceparent: str | None) -> str:
-    """Resolve trace context from W3C traceparent, X-Trace-Id, or a new ID."""
+    """Resolve trace context from W3C traceparent, X-Trace-Id, or a new ID.
+
+    Architecture view: W3C traceparent wins because it is the professional
+    distributed tracing standard; X-Trace-Id remains useful for local demos.
+    """
 
     traceparent_trace_id = trace_id_from_traceparent(traceparent)
     if traceparent_trace_id:
@@ -59,7 +91,11 @@ def trace_id_from_headers(trace_id: str | None, traceparent: str | None) -> str:
 
 
 def trace_id_from_traceparent(value: str | None) -> str | None:
-    """Extract the W3C trace ID from a traceparent header."""
+    """Extract the W3C trace ID from a traceparent header.
+
+    Engineering view: invalid or all-zero trace IDs are ignored instead of
+    poisoning logs with non-compliant correlation data.
+    """
 
     normalized = (value or "").strip().lower()
     match = _TRACEPARENT_PATTERN.match(normalized)
@@ -72,7 +108,11 @@ def trace_id_from_traceparent(value: str | None) -> str | None:
 
 
 def traceparent_from_trace_id(trace_id: str) -> str | None:
-    """Create a W3C traceparent header for valid 32-character trace IDs."""
+    """Create a W3C traceparent header for valid 32-character trace IDs.
+
+    Architecture view: outbound Account Service calls can be upgraded to full
+    OpenTelemetry later without changing the public API contract.
+    """
 
     normalized = trace_id.lower()
     if not re.fullmatch(r"[0-9a-f]{32}", normalized) or normalized == "0" * 32:

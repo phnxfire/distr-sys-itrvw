@@ -1,4 +1,13 @@
-"""ASGI application for the public Event Gateway API."""
+"""ASGI application for the public Event Gateway API.
+
+Engineering view: this module wires FastAPI routes, middleware, persistence,
+downstream HTTP calls, metrics, and structured logging into one runnable app.
+Architecture view: Gateway is the public boundary; it validates events,
+enforces edge idempotency, owns public event history, and delegates account
+state to Account Service.
+Business view: Gateway decides whether a submitted financial event is accepted,
+replayed, rejected, or unavailable.
+"""
 
 from __future__ import annotations
 
@@ -42,7 +51,13 @@ def create_app(
     repository: GatewayRepository | None = None,
     account_client: HttpAccountClient | None = None,
 ) -> FastAPI:
-    """Create a Gateway app with injectable repository and Account client."""
+    """Create a Gateway app with injectable repository and Account client.
+
+    Engineering view: dependency injection keeps route logic testable without
+    starting real network services or sharing state between tests.
+    Architecture view: production uses environment-configured dependencies,
+    while tests can supply in-memory repositories and fake clients.
+    """
 
     app = FastAPI(title="Event Ledger Gateway API", version="0.1.0")
     app.state.repository = repository or GatewayRepository(
@@ -63,7 +78,11 @@ def create_app(
 
     @app.middleware("http")
     async def trace_metrics_logging_middleware(request: Request, call_next):
-        """Create/propagate trace IDs and record request observability data."""
+        """Create/propagate trace IDs and record request observability data.
+
+        Operations view: every request receives correlation headers, latency
+        metrics, and structured logs so a reviewer can trace Gateway behavior.
+        """
 
         trace_id = trace_id_from_headers(
             request.headers.get(TRACE_HEADER),
@@ -106,7 +125,14 @@ def create_app(
         response: Response,
         request: Request,
     ) -> EventRecord:
-        """Accept a transaction event after downstream account application."""
+        """Accept a transaction event after downstream account application.
+
+        Business view: this is the public write path. It accepts exact duplicate
+        replays, rejects conflicting idempotency keys, and records only events
+        that Account Service has applied or idempotently replayed.
+        Architecture view: Gateway does not compute balances; it coordinates
+        with Account Service and persists the public event record.
+        """
 
         repository: GatewayRepository = request.app.state.repository
         account_service: HttpAccountClient = request.app.state.account_client
@@ -172,7 +198,11 @@ def create_app(
         event_id: str,
         request: Request,
     ) -> EventRecord:
-        """Return one Gateway-owned event record by eventId."""
+        """Return one Gateway-owned event record by eventId.
+
+        Graceful degradation view: this read depends only on Gateway storage, so
+        it still works when Account Service is unavailable.
+        """
 
         repository: GatewayRepository = request.app.state.repository
         event = repository.get_event(event_id)
@@ -185,7 +215,11 @@ def create_app(
         request: Request,
         account: str = Query(..., min_length=1),
     ) -> list[EventRecord]:
-        """Return Gateway-owned events for an account in chronological order."""
+        """Return Gateway-owned events for an account in chronological order.
+
+        Business view: clients see event history ordered by original event time,
+        not by whichever upstream system delivered first.
+        """
 
         repository: GatewayRepository = request.app.state.repository
         return repository.list_events_for_account(account)
@@ -195,7 +229,11 @@ def create_app(
         account_id: str,
         request: Request,
     ) -> BalanceResponse:
-        """Proxy account balance reads to the Account Service."""
+        """Proxy account balance reads to the Account Service.
+
+        Architecture view: Gateway exposes a convenient public read endpoint
+        while preserving Account Service ownership of balances.
+        """
 
         account_service: HttpAccountClient = request.app.state.account_client
         metrics: MetricsRegistry = request.app.state.metrics
@@ -222,7 +260,11 @@ def create_app(
         account_id: str,
         request: Request,
     ) -> AccountDetailsResponse:
-        """Proxy account detail reads to the Account Service."""
+        """Proxy account detail reads to the Account Service.
+
+        Business view: account details come from the service that owns applied
+        transactions, keeping the response authoritative.
+        """
 
         account_service: HttpAccountClient = request.app.state.account_client
         metrics: MetricsRegistry = request.app.state.metrics
@@ -249,7 +291,11 @@ def create_app(
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
-        """Return Gateway status and local database diagnostics."""
+        """Return Gateway status and local database diagnostics.
+
+        Operations view: this is the lightweight readiness signal used by
+        humans, tests, and Docker Compose health checks.
+        """
 
         repository: GatewayRepository = request.app.state.repository
         database_status = "ok" if repository.health_check() else "unavailable"
@@ -262,7 +308,11 @@ def create_app(
 
     @app.get("/metrics")
     async def metrics(request: Request):
-        """Return in-process request counters and latency summaries."""
+        """Return in-process request, latency, error, and domain counters.
+
+        Operations view: exposing metrics through HTTP makes the take-home easy
+        to inspect without adding monitoring infrastructure.
+        """
 
         return request.app.state.metrics.snapshot()
 
@@ -270,7 +320,11 @@ def create_app(
 
 
 def _same_event(existing: EventPayload, incoming: EventPayload) -> bool:
-    """Return whether two event payloads are equivalent for idempotency."""
+    """Return whether two event payloads are equivalent for idempotency.
+
+    Business view: exact event replays are accepted, but any changed financial
+    fact under the same eventId is treated as a conflict.
+    """
 
     return (
         existing.event_id == incoming.event_id
